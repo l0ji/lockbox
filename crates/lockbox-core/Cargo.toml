@@ -6,3 +6,6 @@ edition.workspace = true
 [dependencies]
 iroh.workspace = true
 lockbox-proto.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

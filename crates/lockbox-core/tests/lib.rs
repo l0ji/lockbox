@@ -1,0 +1,45 @@
+//! Tests of the node's public surface.
+
+use std::{net::SocketAddr, time::Duration};
+
+use lockbox_core::Node;
+use lockbox_proto::PROTOCOL_VERSION;
+
+#[tokio::test]
+async fn reports_status_of_the_bound_node() {
+    let node = Node::bind().await.expect("node must bind");
+    let status = node.status();
+
+    assert_eq!(status.protocol_version, PROTOCOL_VERSION);
+    assert_eq!(status.daemon_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(status.node_id, node.id().to_string());
+    assert!(
+        status
+            .relay_urls
+            .iter()
+            .all(|url| url.starts_with("https://")),
+        "{:?}",
+        status.relay_urls
+    );
+    assert!(
+        status
+            .direct_addrs
+            .iter()
+            .all(|addr| addr.parse::<SocketAddr>().is_ok()),
+        "{:?}",
+        status.direct_addrs
+    );
+
+    node.shutdown().await;
+}
+
+#[tokio::test]
+async fn counts_uptime_from_binding() {
+    let node = Node::bind().await.expect("node must bind");
+    let bound = node.uptime_secs();
+
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    assert!(node.uptime_secs() > bound, "{bound}");
+
+    node.shutdown().await;
+}
