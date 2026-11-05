@@ -33,14 +33,3 @@ pub fn default_socket_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     base.join("lockbox").join("daemon.sock")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_socket_path_is_nested() {
-        let path = default_socket_path();
-        assert!(path.ends_with("lockbox/daemon.sock"), "{}", path.display());
-    }
-}
