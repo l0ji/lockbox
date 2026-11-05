@@ -1,12 +1,10 @@
 //! Tests for [`lockbox_proto::config`].
 
-use std::{
-    collections::HashMap,
-    ffi::OsString,
-    fs, io,
-    path::{Path, PathBuf},
-};
+mod common;
 
+use std::{collections::HashMap, ffi::OsString, fs, io, path::Path};
+
+use common::Temp;
 use lockbox_proto::config;
 
 /// Fixed environment from a set of variables.
@@ -37,28 +35,6 @@ fn env_with_home(home: &Path, pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option
 
 /// System directory that no test machine has.
 const MISSING_SYSTEM: &str = "/nonexistent/lockbox";
-
-/// Temporary directory for one test, removed when the test ends.
-struct Temp(PathBuf);
-
-impl Temp {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("lockbox-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("temporary directory");
-        Self(dir)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for Temp {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
 
 #[test]
 fn directory_override_wins() {
