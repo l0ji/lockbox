@@ -6,15 +6,16 @@
 use std::{path::PathBuf, process::ExitCode, sync::Arc};
 
 use lockbox_core::{BoxError, Node};
-use lockbox_proto::local;
-use lockboxd::{AppState, serve};
+use lockbox_proto::{config, local};
+use lockboxd::{AppState, Keypair, load_keypair, serve};
 
 const USAGE: &str = "\
-Usage: lockboxd [--socket <path>]
+Usage: lockboxd [--socket <path>] [--user-keys]
 
 Options:
   --socket <path>  Location to serve UNIX socket
                    (default: $LOCKBOX_SOCKET, else <runtime dir>/lockbox/daemon.sock)
+  --user-keys      Use the current user's local keypair over the system's
   -h, --help       Print this help
   -V, --version    Print the version";
 
@@ -27,8 +28,8 @@ async fn main() -> ExitCode {
         )
         .init();
 
-    let socket = match Command::parse() {
-        Ok(Command::Run { socket }) => socket,
+    let (socket, user_keys) = match Command::parse() {
+        Ok(Command::Run { socket, user_keys }) => (socket, user_keys),
         Ok(Command::Help) => {
             println!("{}", USAGE);
             return ExitCode::SUCCESS;
@@ -45,7 +46,7 @@ async fn main() -> ExitCode {
         }
     };
 
-    match run(socket).await {
+    match run(socket, user_keys).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             tracing::error!("{err}");
@@ -54,8 +55,16 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(socket: PathBuf) -> Result<(), BoxError> {
-    let node = Arc::new(Node::bind().await?);
+async fn run(socket: PathBuf, user_keys: bool) -> Result<(), BoxError> {
+    let dir = if user_keys {
+        config::user_dir()?
+    } else {
+        config::dir()?
+    };
+    let keypair = load_keypair(&dir)?;
+    announce(&keypair);
+
+    let node = Arc::new(Node::bind(keypair.secret).await?);
     let node_id = node.id();
     tracing::info!(node_id = %node_id, "node bound");
 
@@ -70,6 +79,23 @@ async fn run(socket: PathBuf) -> Result<(), BoxError> {
     node.shutdown().await;
     result?;
     Ok(())
+}
+
+/// Tells the user which account this daemon runs as.
+fn announce(keypair: &Keypair) {
+    let public = keypair.public();
+    if !keypair.created {
+        tracing::info!(public_key = %public, "running daemon with public key");
+        return;
+    }
+    tracing::warn!(
+        path = %keypair.path.display(),
+        "generated a new account keypair"
+    );
+    tracing::warn!(public_key = %public, "public key of this account");
+    tracing::warn!(
+        "The secret key is your account's passkey: back it up and never share it with anyone!"
+    );
 }
 
 /// Handles any termination or keyboard interrupt signals.
@@ -102,7 +128,7 @@ async fn shutdown_signal() {
 
 /// Possible command line options
 enum Command {
-    Run { socket: PathBuf },
+    Run { socket: PathBuf, user_keys: bool },
     Help,
     Version,
 }
@@ -110,6 +136,7 @@ enum Command {
 impl Command {
     fn parse() -> Result<Self, String> {
         let mut socket = None;
+        let mut user_keys = false;
         let mut args = std::env::args().skip(1);
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -117,6 +144,7 @@ impl Command {
                     let value = args.next().ok_or("--socket needs a path")?;
                     socket = Some(PathBuf::from(value));
                 }
+                "--user-keys" => user_keys = true,
                 "-h" | "--help" => return Ok(Self::Help),
                 "-V" | "--version" => return Ok(Self::Version),
                 other => return Err(format!("unknown argument {other:?}")),
@@ -124,6 +152,7 @@ impl Command {
         }
         Ok(Self::Run {
             socket: socket.unwrap_or_else(local::socket_path),
+            user_keys,
         })
     }
 }

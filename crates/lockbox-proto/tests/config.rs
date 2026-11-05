@@ -8,7 +8,7 @@ use common::Temp;
 use lockbox_proto::config;
 
 /// Fixed environment from a set of variables.
-fn env_vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
+fn env_vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
     let vars: HashMap<String, OsString> = pairs
         .iter()
         .map(|(name, value)| ((*name).to_owned(), OsString::from(value)))
@@ -17,7 +17,7 @@ fn env_vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
 }
 
 /// Environment for an user's $HOME, with the given variables on top of `$HOME`.
-fn env_with_home(home: &Path, pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
+fn env_with_home(home: &Path, pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
     let mut vars: Vec<(String, String)> = pairs
         .iter()
         .map(|(name, value)| (name.to_string(), value.to_string()))
@@ -119,4 +119,31 @@ fn an_empty_home_is_treated_as_unset() {
     )
     .expect_err("no home directory");
     assert_eq!(err.kind(), io::ErrorKind::NotFound);
+}
+
+#[test]
+fn the_user_directory_ignores_the_system_one() {
+    let system = Temp::new("scope-system");
+    let home = Temp::new("scope-home");
+    let xdg = home.path().join("xdg");
+    let vars = env_with_home(home.path(), &[("XDG_CONFIG_HOME", xdg.to_str().unwrap())]);
+
+    let default = config::dir_with(system.path(), &vars).expect("default directory");
+    let user = config::user_dir_with(&vars).expect("user directory");
+
+    assert_eq!(default, system.path());
+    assert_eq!(user, xdg.join(config::CONFIG_DIR));
+}
+
+#[test]
+fn the_user_directory_still_honours_the_override() {
+    let home = Temp::new("scope-override");
+    let files = home.path().join("files");
+    let dir = config::user_dir_with(env_with_home(
+        home.path(),
+        &[("LOCKBOX_DIR", files.to_str().unwrap())],
+    ))
+    .expect("override directory");
+
+    assert_eq!(dir, files);
 }

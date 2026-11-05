@@ -1,16 +1,20 @@
-//! Common code for building the HTTP API for clients to use and handles the
-//! creation of the socket's containing folder and file.
+//! Common code for building the HTTP API for clients to use, handles the
+//! creation of the socket's containing folder and file, and loads or generates
+//! the account keypair.
 
 use std::{
     fs, io,
     os::unix::fs::{DirBuilderExt, PermissionsExt},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
 use axum::{Json, Router, extract::State, routing::get};
-use lockbox_core::Node;
-use lockbox_proto::api::{HEALTH_PATH, Health, STATUS_PATH, Status};
+use lockbox_core::{BoxError, Node, SecretKey};
+use lockbox_proto::{
+    api::{HEALTH_PATH, Health, STATUS_PATH, Status},
+    key::{self, ReadError},
+};
 use tokio::net::UnixListener;
 
 /// State shared by the daemon's routes.
@@ -111,5 +115,70 @@ fn clear_stale_socket(socket: &Path) -> io::Result<()> {
             tracing::warn!(socket = %socket.display(), "removing stale socket");
             fs::remove_file(socket)
         }
+    }
+}
+
+/// The account keypair the daemon runs as.
+pub struct Keypair {
+    /// Secret key this node authenticates with.
+    pub secret: SecretKey,
+    /// File the secret key was read from, or written to.
+    pub path: PathBuf,
+    /// Whether the keypair was generated on this run.
+    pub created: bool,
+}
+
+impl Keypair {
+    /// Public key of this account, encoded with the `lbox0` prefix.
+    pub fn public(&self) -> String {
+        key::encode_public(self.secret.public().as_bytes())
+    }
+}
+
+/// Load the account keypair from `dir`, generating one when there is none.
+///
+/// A corrupt key file is an error rather than a reason to generate another one,
+/// which would silently move the account to a new identity.
+pub fn load_keypair(dir: &Path) -> Result<Keypair, BoxError> {
+    let path = dir.join(key::SECRET_FILE);
+    match key::read_secret(dir) {
+        Ok(bytes) => {
+            let keypair = Keypair {
+                secret: SecretKey::from_bytes(&bytes),
+                path,
+                created: false,
+            };
+            replace_public_file(dir, &keypair);
+            Ok(keypair)
+        }
+        Err(ReadError::Missing) => create_keypair(dir),
+        Err(err) => Err(format!("cannot read {}: {err}", path.display()).into()),
+    }
+}
+
+/// Generate an account keypair and store both of its files in `dir`.
+fn create_keypair(dir: &Path) -> Result<Keypair, BoxError> {
+    let secret = SecretKey::generate();
+    let path = dir.join(key::SECRET_FILE);
+    key::write_secret(dir, &secret.to_bytes())
+        .map_err(|err| format!("cannot write {}: {err}", path.display()))?;
+    let public = dir.join(key::PUBLIC_FILE);
+    key::write_public(dir, secret.public().as_bytes())
+        .map_err(|err| format!("cannot write {}: {err}", public.display()))?;
+    Ok(Keypair {
+        secret,
+        path,
+        created: true,
+    })
+}
+
+/// Write the public key file back when only the secret one still exists.
+fn replace_public_file(dir: &Path, keypair: &Keypair) {
+    if dir.join(key::PUBLIC_FILE).exists() {
+        return;
+    }
+    let public = keypair.secret.public();
+    if let Err(err) = key::write_public(dir, public.as_bytes()) {
+        tracing::warn!(file = %key::PUBLIC_FILE, "cannot write the public key: {err}");
     }
 }

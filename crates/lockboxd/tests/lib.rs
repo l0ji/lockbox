@@ -10,9 +10,12 @@ use std::{
     time::Duration,
 };
 
-use lockbox_core::Node;
-use lockbox_proto::api::{HEALTH_PATH, STATUS_PATH};
-use lockboxd::{AppState, bind, serve};
+use lockbox_core::{Node, SecretKey};
+use lockbox_proto::{
+    api::{HEALTH_PATH, STATUS_PATH},
+    key::{self, PUBLIC_FILE, SECRET_FILE},
+};
+use lockboxd::{AppState, bind, load_keypair, serve};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::oneshot,
@@ -28,6 +31,11 @@ impl TempDir {
         let dir = std::env::temp_dir().join(format!("lockboxd-test-{}-{id}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create test dir");
         Self(dir)
+    }
+
+    /// The directory itself.
+    fn path(&self) -> &Path {
+        &self.0
     }
 
     /// A path inside the directory, whose parents may not exist yet.
@@ -128,7 +136,11 @@ async fn refuses_a_socket_that_is_in_use() {
 async fn serves_the_local_api() {
     let dir = TempDir::new();
     let socket = dir.join("daemon.sock");
-    let node = Arc::new(Node::bind().await.expect("node must bind"));
+    let node = Arc::new(
+        Node::bind(SecretKey::generate())
+            .await
+            .expect("node must bind"),
+    );
     let node_id = node.id().to_string();
 
     let (stop, stopped) = oneshot::channel();
@@ -165,4 +177,59 @@ async fn serves_the_local_api() {
         .expect("serve task must not panic")
         .expect("serve must stop cleanly");
     assert!(!socket.exists(), "socket must be removed on shutdown");
+}
+
+#[test]
+fn generates_an_account_keypair_when_there_is_none() {
+    let dir = TempDir::new();
+    let keypair = load_keypair(dir.path()).expect("keypair");
+
+    assert!(keypair.created);
+    assert!(keypair.public().starts_with("lbox0"));
+    assert!(dir.join(SECRET_FILE).is_file());
+    let filed = std::fs::read_to_string(dir.join(PUBLIC_FILE)).expect("public key file");
+    assert_eq!(filed.trim(), keypair.public());
+    assert_eq!(
+        std::fs::read_to_string(dir.join(SECRET_FILE))
+            .expect("secret key file")
+            .trim(),
+        key::encode_secret(&keypair.secret.to_bytes())
+    );
+}
+
+#[test]
+fn loads_the_account_keypair_it_generated() {
+    let dir = TempDir::new();
+    let first = load_keypair(dir.path()).expect("first keypair");
+    let second = load_keypair(dir.path()).expect("second keypair");
+
+    assert!(first.created);
+    assert!(!second.created);
+    assert_eq!(first.public(), second.public());
+    assert_eq!(first.secret.to_bytes(), second.secret.to_bytes());
+}
+
+#[test]
+fn refuses_a_corrupt_secret_file() {
+    let dir = TempDir::new();
+    std::fs::write(dir.join(SECRET_FILE), "not a key\n").expect("write corrupt secret");
+
+    let err = match load_keypair(dir.path()) {
+        Ok(_) => panic!("a corrupt secret must not be accepted"),
+        Err(err) => err,
+    };
+    assert!(err.to_string().contains("secret.key"), "{err}");
+    assert!(!dir.join(PUBLIC_FILE).exists());
+}
+
+#[test]
+fn restores_a_missing_public_key_file() {
+    let dir = TempDir::new();
+    let first = load_keypair(dir.path()).expect("first keypair");
+    std::fs::remove_file(dir.join(PUBLIC_FILE)).expect("remove public key file");
+
+    let second = load_keypair(dir.path()).expect("second keypair");
+    assert_eq!(first.public(), second.public());
+    let filed = std::fs::read_to_string(dir.join(PUBLIC_FILE)).expect("public key file");
+    assert_eq!(filed.trim(), second.public());
 }

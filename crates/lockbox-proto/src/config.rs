@@ -38,11 +38,25 @@ pub fn dir() -> io::Result<PathBuf> {
 
 /// [`dir`] for an explicit system directory and environment.
 pub fn dir_with(system: &Path, var: impl Fn(&str) -> Option<OsString>) -> io::Result<PathBuf> {
+    match non_empty(var(DIR_ENV)) {
+        Some(dir) => prepare(Path::new(&dir)),
+        None if system.is_dir() => Ok(system.to_path_buf()),
+        None => user_dir_with(var),
+    }
+}
+
+/// Directory for lockbox's files in the user's own home directory.
+///
+/// Like [`dir`], but [`SYSTEM_DIR`] is never used, so a keypair installed by an
+/// administrator does not override the user's existing keypair.
+pub fn user_dir() -> io::Result<PathBuf> {
+    user_dir_with(|name: &str| std::env::var_os(name))
+}
+
+/// [`user_dir`] for an explicit environment.
+pub fn user_dir_with(var: impl Fn(&str) -> Option<OsString>) -> io::Result<PathBuf> {
     if let Some(dir) = non_empty(var(DIR_ENV)) {
         return prepare(Path::new(&dir));
-    }
-    if system.is_dir() {
-        return Ok(system.to_path_buf());
     }
     let home = non_empty(var("HOME")).map(PathBuf::from);
     let config = non_empty(var("XDG_CONFIG_HOME"))

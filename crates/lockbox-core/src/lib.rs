@@ -7,7 +7,7 @@
 use std::time::Instant;
 
 use iroh::{Endpoint, endpoint::presets};
-pub use iroh::{EndpointAddr, EndpointId};
+pub use iroh::{EndpointAddr, EndpointId, SecretKey};
 use lockbox_proto::{PROTOCOL_VERSION, api::Status};
 
 /// Error type used across the node's code.
@@ -24,11 +24,13 @@ pub struct Node {
 impl Node {
     /// Bind an endpoint on the default n0 relay network with the lockbox ALPN.
     ///
-    /// The node will immediately start and does not need to wait to connect to
-    /// the relay to become operational.
-    pub async fn bind() -> Result<Self, BoxError> {
+    /// The node authenticates as `secret`, which is the account keypair the
+    /// daemon owns. The node will immediately start and does not need to wait
+    /// to connect to the relay to become operational.
+    pub async fn bind(secret: SecretKey) -> Result<Self, BoxError> {
         let endpoint = Endpoint::builder(presets::N0)
             .alpns(vec![lockbox_proto::ALPN.to_vec()])
+            .secret_key(secret)
             .bind()
             .await?;
         Ok(Self {
