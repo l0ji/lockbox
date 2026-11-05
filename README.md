@@ -7,7 +7,7 @@ the pedant's stumbleupon (it's a link aggregator).
 | Crate | Kind | Role |
 | --- | --- | --- |
 | `lockbox-core` | lib | Reference implementation of the protocol server |
-| `lockbox-proto` | lib | API specification of the protocol |
+| `lockbox-proto` | lib | Technical specification of the protocol |
 | `lockboxd` | bin | Persistent UNIX socket daemon |
 | `lockbox-web` | bin | Standard web client |
 

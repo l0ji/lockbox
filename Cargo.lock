@@ -255,6 +255,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bech32"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f"
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1584,6 +1590,7 @@ dependencies = [
 name = "lockbox-proto"
 version = "0.1.0"
 dependencies = [
+ "bech32",
  "serde",
 ]
 

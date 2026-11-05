@@ -3,13 +3,15 @@
 //! A few constants live here. The p2p protocol is locked by [`ALPN`] and
 //! [`PROTOCOL_VERSION`]. The local HTTP API that the daemon serves on its
 //! UNIX socket and which clients consumes is in [`api`]. Both binaries
-//! determine where the socket is stored in [`local`].
+//! determine where the socket is stored in [`local`]. Account keys are defined
+//! in [`key`].
 //!
 //! This crate should cover purely the technical specification of the protocol,
 //! and any asynchronous runtimes, network stacks or any other heavy things
 //! should be stored somewhere else.
 
 pub mod api;
+pub mod key;
 pub mod local;
 
 /// ALPN protocol name negotiated on every lockbox connection.
