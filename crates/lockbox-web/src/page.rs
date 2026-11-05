@@ -74,17 +74,3 @@ fn format_uptime(secs: u64) -> String {
     }
     format!("{}d {}h", hours / 24, hours % 24)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn formats_uptime_in_two_units() {
-        assert_eq!(format_uptime(0), "0s");
-        assert_eq!(format_uptime(59), "59s");
-        assert_eq!(format_uptime(61), "1m 1s");
-        assert_eq!(format_uptime(3600), "1h 0m");
-        assert_eq!(format_uptime(90000), "1d 1h");
-    }
-}

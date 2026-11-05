@@ -3,14 +3,20 @@
 mod client;
 mod page;
 
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use askama::Template;
-use axum::{Json, Router, extract::State, http::StatusCode, response::Html, routing::get};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::{StatusCode, Uri, header},
+    response::{self, Html, IntoResponse},
+    routing::get,
+};
 use lockbox_proto::api::{ApiError, STATUS_PATH, Status};
 
 pub use client::{ClientError, DaemonClient, Response};
-use page::Page;
+pub use page::Page;
 
 /// Shared state for the web client's routes.
 #[derive(Clone)]
@@ -32,12 +38,45 @@ impl AppState {
     }
 }
 
+/// Embedded `static/` directory.
+mod assets {
+    include!(concat!(env!("OUT_DIR"), "/static.rs"));
+}
+
 /// Build the client's router.
+///
+/// Paths the routes do not claim are treated as files from `static/`.
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
         .route(STATUS_PATH, get(status))
         .with_state(state)
+        .fallback(asset)
+}
+
+/// Serve a file from `static/`, keyed by the request path.
+async fn asset(uri: Uri) -> response::Response {
+    let requested = uri.path().trim_start_matches('/');
+    match assets::ASSETS.iter().find(|(path, _)| *path == requested) {
+        Some((path, body)) => ([(header::CONTENT_TYPE, content_type(path))], *body).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Content type for a static file, guessed from its extension.
+/// Ideally should be replaced by a proper library.
+fn content_type(path: &str) -> &'static str {
+    match Path::new(path).extension().and_then(|ext| ext.to_str()) {
+        Some("css") => "text/css; charset=utf-8",
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("json") => "application/json",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("ico") => "image/x-icon",
+        Some("woff2") => "font/woff2",
+        _ => "application/octet-stream",
+    }
 }
 
 /// Render the status page, with the error line filled in when the daemon is down.
