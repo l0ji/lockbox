@@ -1,0 +1,30 @@
+// Debug configurations for `debugger: start`. Both binaries use a socket in
+// `target/` so they don't fight with a daemon on the default path.
+[
+  {
+    "label": "lockboxd",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "build": {
+      "command": "cargo",
+      "args": ["build", "-p", "lockboxd"]
+    },
+    "program": "$ZED_WORKTREE_ROOT/target/debug/lockboxd",
+    "args": ["--socket", "target/lockboxd.sock"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "sourceLanguages": ["rust"]
+  },
+  {
+    "label": "lockbox-web",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "build": {
+      "command": "cargo",
+      "args": ["build", "-p", "lockbox-web"]
+    },
+    "program": "$ZED_WORKTREE_ROOT/target/debug/lockbox-web",
+    "args": ["--socket", "target/lockboxd.sock"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "sourceLanguages": ["rust"]
+  }
+]

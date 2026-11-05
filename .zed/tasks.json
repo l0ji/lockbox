@@ -1,0 +1,40 @@
+// Project tasks, spawned with `task: spawn`.
+[
+  {
+    "label": "lockboxd",
+    "command": "cargo",
+    "args": ["run", "-p", "lockboxd"],
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "save": "all"
+  },
+  {
+    "label": "lockbox-web",
+    "command": "cargo",
+    "args": ["run", "-p", "lockbox-web"],
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "save": "all"
+  },
+  {
+    "label": "test",
+    "command": "cargo",
+    "args": ["test", "--workspace"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success",
+    "save": "all"
+  },
+  {
+    "label": "clippy",
+    "command": "cargo",
+    "args": ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "save": "all"
+  }
+]
