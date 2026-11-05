@@ -1,8 +1,11 @@
-//! Module that definds the encoding of an account keypair.
+//! Module that defines the encoding of an account keypair.
 //!
 //! A public key is encoded with the [`PUBLIC_PREFIX`] and a secret key with the
 //! [`SECRET_PREFIX`]. Both are the raw [`KEY_LEN`] bytes in lower-case bech32m
 //! (BIP-350) with a bech32m checksum.
+//!
+//! The pair is kept as [`SECRET_FILE`] and [`PUBLIC_FILE`] in
+//! [`crate::config::dir`].
 
 use std::fmt;
 
@@ -82,3 +85,9 @@ fn decode(prefix: &str, text: &str) -> Result<[u8; KEY_LEN], KeyError> {
 fn hrp(prefix: &str) -> Hrp {
     Hrp::parse(prefix).expect("both key prefixes are valid human readable parts")
 }
+
+/// Name of the file that holds the encoded secret key.
+pub const SECRET_FILE: &str = "secret.key";
+
+/// Name of the file that holds the encoded public key.
+pub const PUBLIC_FILE: &str = "public.key";
