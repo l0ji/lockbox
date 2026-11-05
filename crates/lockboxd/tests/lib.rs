@@ -13,7 +13,7 @@ use std::{
 use lockbox_core::{Node, SecretKey};
 use lockbox_proto::{
     api::{HEALTH_PATH, STATUS_PATH},
-    key::{self, PUBLIC_FILE, SECRET_FILE},
+    key::{self, PUBLIC_FILE, PUBLIC_PREFIX, SECRET_FILE},
 };
 use lockboxd::{AppState, bind, load_keypair, serve};
 use tokio::{
@@ -186,6 +186,10 @@ fn generates_an_account_keypair_when_there_is_none() {
 
     assert!(keypair.created);
     assert!(keypair.public().starts_with("lbox0"));
+    let public = keypair.public();
+    let fingerprint = keypair.fingerprint().replace('-', "");
+    let data = &public[PUBLIC_PREFIX.len() + 1..];
+    assert_eq!(&data[..fingerprint.len()], fingerprint);
     assert!(dir.join(SECRET_FILE).is_file());
     let filed = std::fs::read_to_string(dir.join(PUBLIC_FILE)).expect("public key file");
     assert_eq!(filed.trim(), keypair.public());

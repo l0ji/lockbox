@@ -91,6 +91,21 @@ fn hrp(prefix: &str) -> Hrp {
     Hrp::parse(prefix).expect("both key prefixes are valid human readable parts")
 }
 
+/// Number of data characters a fingerprint keeps.
+pub const FINGERPRINT_LEN: usize = 10;
+
+/// Short form of a public key, for use as a quick comparison between keys.
+///
+/// It is the first [`FINGERPRINT_LEN`] characters of the data part of the
+/// [`PUBLIC_PREFIX`] encoding, in two groups of five. A fingerprint does not
+/// identify a node and is meant STRICTLY for human comparison.
+pub fn fingerprint(key: &[u8; KEY_LEN]) -> String {
+    let public = encode_public(key);
+    let data = &public[PUBLIC_PREFIX.len() + 1..][..FINGERPRINT_LEN];
+    let (head, tail) = data.split_at(FINGERPRINT_LEN / 2);
+    format!("{head}-{tail}")
+}
+
 /// Name of the file that holds the encoded secret key.
 pub const SECRET_FILE: &str = "secret.key";
 

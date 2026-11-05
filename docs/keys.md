@@ -37,6 +37,21 @@ The `lbox0` string is the presentation form of the public key and is the form
 used in user-facing text. The local API reports the identifier in lower-case
 hexadecimal, as `Status.node_id`.
 
+### Fingerprint
+
+A fingerprint is the first ten characters of the data part of the `lbox0`
+encoding, in two groups of five separated by a hyphen. It is eleven characters
+long and carries no checksum.
+
+Fingerprints are for reading a key out loud and for comparing two keys by eye. A
+fingerprint MUST NOT be used as an identifier or as a storage key, and a
+comparison that decides which key a party holds MUST use the full encoding.
+
+Only the leading 50 bits of the public key reach the fingerprint, so two keys
+that differ beyond that prefix share one.
+
+For the first vector of the test vectors, the fingerprint is `qqqsy-qcyq5`.
+
 ## Keypair Storage
 
 The keypair is stored as two files in a single directory associated to the protocol:
@@ -69,10 +84,10 @@ implementation MUST take the first entry that is available:
 5. otherwise the implementation MUST fail and name `LOCKBOX_DIR`.
 
 An implementation MAY offer a mode in which entry 2 is skipped, so that a user
-keypair is used even when a system-wide one exists. The `lockboxd` daemon selects
-it with `--user-keys`.
+keypair is used even when a system-wide one exists. The `lockboxd` daemon
+selects it with `--user-keys`.
 
-## 5. Keypair Generation
+## Keypair Generation
 
 On startup an implementation reads `secret.key` from the resolved directory:
 
@@ -84,8 +99,8 @@ On startup an implementation reads `secret.key` from the resolved directory:
   writes `public.key` again from the secret key.
 
 After generation, a newly generated keypair SHOULD be reported with a warning
-that names the file, SHOULD state the public key, and MUST direct the user to
-back up the secret key and to keep it private.
+that names the file, SHOULD state the public key and its fingerprint, and MUST
+direct the user to back up the secret key and to keep it private.
 
 ## Security measures
 
@@ -141,4 +156,4 @@ lbox01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0smz84vm
 ### Informative
 
 - [IROH] "iroh", <https://iroh.computer>, the transport that carries the lockbox
-  protocol and defines the endpoint identifier used in Section 3.
+  protocol and defines the endpoint identifier that uses the public key.

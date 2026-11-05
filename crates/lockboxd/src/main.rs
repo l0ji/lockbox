@@ -84,15 +84,24 @@ async fn run(socket: PathBuf, user_keys: bool) -> Result<(), BoxError> {
 /// Tells the user which account this daemon runs as.
 fn announce(keypair: &Keypair) {
     let public = keypair.public();
+    let fingerprint = keypair.fingerprint();
     if !keypair.created {
-        tracing::info!(public_key = %public, "running daemon with public key");
+        tracing::info!(
+            public_key = %public,
+            fingerprint = %fingerprint,
+            "running daemon with public key"
+        );
         return;
     }
     tracing::warn!(
         path = %keypair.path.display(),
         "generated a new account keypair"
     );
-    tracing::warn!(public_key = %public, "public key of this account");
+    tracing::warn!(
+        public_key = %public,
+        fingerprint = %fingerprint,
+        "public key of this account"
+    );
     tracing::warn!(
         "The secret key is your account's passkey: back it up and never share it with anyone!"
     );

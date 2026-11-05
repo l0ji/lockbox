@@ -133,6 +133,11 @@ impl Keypair {
     pub fn public(&self) -> String {
         key::encode_public(self.secret.public().as_bytes())
     }
+
+    /// Short form of the public key, for comparing.
+    pub fn fingerprint(&self) -> String {
+        key::fingerprint(self.secret.public().as_bytes())
+    }
 }
 
 /// Load the account keypair from `dir`, generating one when there is none.

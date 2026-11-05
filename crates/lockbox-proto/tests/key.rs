@@ -187,3 +187,35 @@ fn mode(path: &std::path::Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
     fs::metadata(path).expect("metadata").permissions().mode() & 0o777
 }
+
+#[test]
+fn fingerprints_the_start_of_the_public_key() {
+    let fingerprint = key::fingerprint(&BYTES);
+    assert_eq!(fingerprint, "qqqsy-qcyq5");
+    assert_eq!(key::fingerprint(&[0; KEY_LEN]), "qqqqq-qqqqq");
+
+    // The digits are the data part of the public key, without the separator
+    let data = &PUBLIC[PUBLIC_PREFIX.len() + 1..];
+    assert_eq!(fingerprint.replace('-', ""), data[..key::FINGERPRINT_LEN]);
+}
+
+#[test]
+fn fingerprints_are_grouped_in_twos() {
+    let fingerprint = key::fingerprint(&BYTES);
+    assert_eq!(fingerprint.len(), key::FINGERPRINT_LEN + 1);
+    let (head, tail) = fingerprint.split_once('-').expect("two groups");
+    assert_eq!(head.len(), tail.len());
+    assert!(head.chars().all(|c| c.is_ascii_alphanumeric()));
+}
+
+#[test]
+fn the_fingerprint_covers_the_start_of_the_key() {
+    let mut other = BYTES;
+    other[0] = 0xff;
+    assert_ne!(key::fingerprint(&BYTES), key::fingerprint(&other));
+
+    // It is a prefix, so a difference at the end of the key is invisible to it
+    let mut late = BYTES;
+    late[KEY_LEN - 1] = 0xff;
+    assert_eq!(key::fingerprint(&BYTES), key::fingerprint(&late));
+}
