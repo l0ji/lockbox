@@ -1,0 +1,8 @@
+[package]
+name = "lockbox-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+iroh.workspace = true
+lockbox-proto.workspace = true

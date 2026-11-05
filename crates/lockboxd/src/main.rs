@@ -1,0 +1,129 @@
+//! Persistent daemon meant for locally configured clients.
+//!
+//! Binds the node, serves the local API on a UNIX socket and runs until
+//! stopped.
+
+use std::{path::PathBuf, process::ExitCode, sync::Arc};
+
+use lockbox_core::{BoxError, Node};
+use lockbox_proto::local;
+use lockboxd::{AppState, serve};
+
+const USAGE: &str = "\
+Usage: lockboxd [--socket <path>]
+
+Options:
+  --socket <path>  Location to serve UNIX socket
+                   (default: $LOCKBOX_SOCKET, else <runtime dir>/lockbox/daemon.sock)
+  -h, --help       Print this help
+  -V, --version    Print the version";
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("lockbox=info,warn")),
+        )
+        .init();
+
+    let socket = match Command::parse() {
+        Ok(Command::Run { socket }) => socket,
+        Ok(Command::Help) => {
+            println!("{}", USAGE);
+            return ExitCode::SUCCESS;
+        }
+        Ok(Command::Version) => {
+            println!("lockboxd v{}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Err(message) => {
+            eprintln!("lockboxd: {message}");
+            eprintln!();
+            eprintln!("{}", USAGE);
+            return ExitCode::from(2);
+        }
+    };
+
+    match run(socket).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            tracing::error!("{err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run(socket: PathBuf) -> Result<(), BoxError> {
+    let node = Arc::new(Node::bind().await?);
+    let node_id = node.id();
+    tracing::info!(node_id = %node_id, "node bound");
+
+    // Passively waits in the background to connect to the relay
+    let online = Arc::clone(&node);
+    tokio::spawn(async move {
+        online.online().await;
+        tracing::info!("node online");
+    });
+
+    let result = serve(&socket, AppState::new(Arc::clone(&node)), shutdown_signal()).await;
+    node.shutdown().await;
+    result?;
+    Ok(())
+}
+
+/// Handles any termination or keyboard interrupt signals.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            tracing::error!("failed to listen for ctrl-c: {err}");
+            std::future::pending::<()>().await;
+        }
+    };
+
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(err) => {
+                tracing::error!("failed to listen for SIGTERM: {err}");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+    tracing::info!("shutting down");
+}
+
+/// Possible command line options
+enum Command {
+    Run { socket: PathBuf },
+    Help,
+    Version,
+}
+
+impl Command {
+    fn parse() -> Result<Self, String> {
+        let mut socket = None;
+        let mut args = std::env::args().skip(1);
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--socket" => {
+                    let value = args.next().ok_or("--socket needs a path")?;
+                    socket = Some(PathBuf::from(value));
+                }
+                "-h" | "--help" => return Ok(Self::Help),
+                "-V" | "--version" => return Ok(Self::Version),
+                other => return Err(format!("unknown argument {other:?}")),
+            }
+        }
+        Ok(Self::Run {
+            socket: socket.unwrap_or_else(local::socket_path),
+        })
+    }
+}

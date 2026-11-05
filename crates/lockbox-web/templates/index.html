@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="2">
+    <title>lockbox</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #fbfbfa;
+            --surface: #ffffff;
+            --text: #17191b;
+            --muted: #5f6b76;
+            --border: #e3e6e8;
+            --live: #1f883d;
+            --danger: #c0392b;
+            --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #141618;
+                --surface: #1b1e21;
+                --text: #e8eaec;
+                --muted: #9aa4ae;
+                --border: #2a2f34;
+                --live: #3fb950;
+                --danger: #ff7b72;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 32px 16px 64px;
+            background: var(--bg);
+            color: var(--text);
+            font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        }
+
+        main {
+            max-width: 640px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 1.3rem;
+            margin: 0 0 4px;
+            letter-spacing: -0.01em;
+        }
+
+        .sub {
+            margin: 0 0 20px;
+            color: var(--muted);
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px;
+            margin-bottom: 16px;
+        }
+
+        .bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            padding: 3px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            color: var(--muted);
+        }
+
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--muted);
+        }
+
+        .status[data-state="live"] .dot {
+            background: var(--live);
+        }
+
+        .status[data-state="down"] .dot {
+            background: var(--danger);
+        }
+
+        dl {
+            display: grid;
+            grid-template-columns: 8rem minmax(0, 1fr);
+            gap: 10px 16px;
+            margin: 0;
+        }
+
+        dt {
+            color: var(--muted);
+        }
+
+        dd {
+            margin: 0;
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            overflow-wrap: anywhere;
+        }
+
+        h2 {
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin: 0 0 8px;
+            font-weight: 600;
+        }
+
+        ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        li {
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            overflow-wrap: anywhere;
+            padding: 2px 0;
+        }
+
+        li.none {
+            color: var(--muted);
+            font-family: inherit;
+        }
+
+        .error {
+            color: var(--danger);
+            font-size: 0.85rem;
+            margin: 16px 0 0;
+        }
+
+        .error:empty {
+            display: none;
+        }
+
+        @media (max-width: 520px) {
+            dl {
+                grid-template-columns: 1fr;
+                gap: 2px;
+            }
+
+            dd {
+                margin-bottom: 10px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>lockbox</h1>
+
+        <section class="card">
+            <div class="bar">
+                <span class="status" data-state="{{ state }}"><span class="dot"></span><span>{{ state_text
+                        }}</span></span>
+            </div>
+            <dl>
+                <dt>Node id</dt>
+                <dd>{{ node_id }}</dd>
+                <dt>Protocol</dt>
+                <dd>{{ protocol }}</dd>
+                <dt>Daemon</dt>
+                <dd>{{ daemon }}</dd>
+                <dt>Uptime</dt>
+                <dd>{{ uptime }}</dd>
+            </dl>
+            <p class="error">{{ error }}</p>
+        </section>
+
+        <section class="card">
+            <h2>Relays</h2>
+            <ul>
+                {%- if has_relays %}
+                {%- for relay in relays %}
+                <li>{{ relay }}</li>
+                {%- endfor %}
+                {%- else %}
+                <li class="none">none</li>
+                {%- endif %}
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Direct addresses</h2>
+            <ul>
+                {%- if has_addrs %}
+                {%- for addr in addrs %}
+                <li>{{ addr }}</li>
+                {%- endfor %}
+                {%- else %}
+                <li class="none">none</li>
+                {%- endif %}
+            </ul>
+        </section>
+    </main>
+</body>
+
+</html>

@@ -1,0 +1,12 @@
+[package]
+name = "lockboxd"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axum.workspace = true
+lockbox-core.workspace = true
+lockbox-proto.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
