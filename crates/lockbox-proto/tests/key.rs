@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
+use std::{fs, io};
 
 use common::Temp;
 use lockbox_proto::key::{
@@ -104,6 +104,7 @@ fn writes_the_public_key_beside_the_secret() {
     assert!(filed.trim().starts_with(PUBLIC_PREFIX));
 }
 
+#[cfg(unix)]
 #[test]
 fn the_secret_file_is_owner_only() {
     let temp = Temp::new("secret-mode");
@@ -111,6 +112,7 @@ fn the_secret_file_is_owner_only() {
     assert_eq!(mode(&temp.path().join(SECRET_FILE)), 0o600);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_public_file_is_readable() {
     let temp = Temp::new("public-mode");
@@ -180,6 +182,8 @@ fn surrounding_whitespace_is_ignored() {
 }
 
 /// Permission bits of `path`, without the file type bits.
-fn mode(path: &Path) -> u32 {
+#[cfg(unix)]
+fn mode(path: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
     fs::metadata(path).expect("metadata").permissions().mode() & 0o777
 }

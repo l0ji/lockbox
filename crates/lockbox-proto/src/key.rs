@@ -11,7 +11,6 @@
 use std::{
     fmt, fs,
     io::{self, Write},
-    os::unix::fs::OpenOptionsExt,
     path::Path,
 };
 
@@ -152,10 +151,17 @@ pub fn write_public(dir: &Path, key: &[u8; KEY_LEN]) -> io::Result<()> {
     create(&dir.join(PUBLIC_FILE), &encode_public(key), 0o644)
 }
 
-/// Create a file in `path` with `text` in it and `mode` as its permission bits.
+/// Create a file in `path` with `text` in it, and `mode` as its permission bits
+/// where the platform has them.
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn create(path: &Path, text: &str, mode: u32) -> io::Result<()> {
     let mut options = fs::OpenOptions::new();
-    options.mode(mode).write(true).create_new(true);
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(mode);
+    }
     let mut file = options.open(path)?;
     writeln!(file, "{text}")
 }

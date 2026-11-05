@@ -4,6 +4,10 @@ the pedant's stumbleupon (it's a link aggregator).
 
 ## Crates
 
+> [!warning]
+> Binary crates are currently not portable and are only expected to work on UNIX
+> boxes. Library crates may or may not work on Windows.
+
 | Crate | Kind | Role |
 | --- | --- | --- |
 | `lockbox-core` | lib | Reference implementation of the protocol server |
