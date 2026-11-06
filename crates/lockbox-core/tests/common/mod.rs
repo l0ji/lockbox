@@ -28,3 +28,23 @@ impl Drop for Temp {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
+
+/// Make `dir` read-only and report on whether writes are refused.
+#[cfg(unix)]
+pub fn lock(dir: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).expect("lock directory");
+    let probe = dir.join(".probe");
+    let locked = fs::write(&probe, "").is_err();
+    let _ = fs::remove_file(&probe);
+    locked
+}
+
+/// Unlock `dir` and give it full permissions again.
+#[cfg(unix)]
+pub fn unlock(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).expect("unlock directory");
+}

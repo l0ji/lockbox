@@ -5,8 +5,8 @@
 
 use std::{path::PathBuf, process::ExitCode, sync::Arc};
 
-use lockbox_core::{BoxError, Node};
-use lockbox_proto::{config, local};
+use lockbox_core::{BoxError, Node, config};
+use lockbox_proto::local;
 use lockboxd::{AppState, Keypair, load_keypair, serve};
 
 const USAGE: &str = "\

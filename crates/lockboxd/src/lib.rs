@@ -10,10 +10,13 @@ use std::{
 };
 
 use axum::{Json, Router, extract::State, routing::get};
-use lockbox_core::{BoxError, Node, SecretKey};
+use lockbox_core::{
+    BoxError, Node, SecretKey,
+    key::{self, ReadError},
+};
 use lockbox_proto::{
     api::{HEALTH_PATH, Health, STATUS_PATH, Status},
-    key::{self, ReadError},
+    key as encoding,
 };
 use tokio::net::UnixListener;
 
@@ -131,12 +134,12 @@ pub struct Keypair {
 impl Keypair {
     /// Public key of this account, encoded with the `lbox0` prefix.
     pub fn public(&self) -> String {
-        key::encode_public(self.secret.public().as_bytes())
+        encoding::encode_public(self.secret.public().as_bytes())
     }
 
     /// Short form of the public key, for comparing.
     pub fn fingerprint(&self) -> String {
-        key::fingerprint(self.secret.public().as_bytes())
+        encoding::fingerprint(self.secret.public().as_bytes())
     }
 }
 

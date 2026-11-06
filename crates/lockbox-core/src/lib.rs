@@ -3,6 +3,12 @@
 //! A [`Node`] owns one iroh endpoint. The daemon keeps a node alive for
 //! its lifetime and turns the protocol into a local API meant to be consumed
 //! by clients.
+//!
+//! [`config`] resolves and creates the directory for lockbox files.
+//! [`key`] reads and writes the account keypair to the config directory.
+
+pub mod config;
+pub mod key;
 
 use std::time::Instant;
 

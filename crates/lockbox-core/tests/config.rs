@@ -1,11 +1,11 @@
-//! Tests for [`lockbox_proto::config`].
+//! Tests for [`lockbox_core::config`].
 
 mod common;
 
 use std::{collections::HashMap, ffi::OsString, fs, io, path::Path};
 
 use common::Temp;
-use lockbox_proto::config;
+use lockbox_core::config;
 
 /// Fixed environment from a set of variables.
 fn env_vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
@@ -146,4 +146,37 @@ fn the_user_directory_still_honours_the_override() {
     .expect("override directory");
 
     assert_eq!(dir, files);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unwritable_system_directory_is_still_chosen() {
+    let system = Temp::new("system-locked");
+    let home = Temp::new("system-locked-home");
+    common::lock(system.path());
+
+    let dir = config::dir_with(system.path(), env_with_home(home.path(), &[]));
+    common::unlock(system.path());
+
+    assert_eq!(dir.expect("system directory"), system.path());
+    assert!(!home.path().join(".config").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_locked_override_names_the_directory() {
+    let temp = Temp::new("locked-override");
+    let files = temp.path().join("files");
+    fs::create_dir_all(&files).expect("override directory");
+    if !common::lock(&files) {
+        common::unlock(&files);
+        return;
+    }
+
+    let result = config::user_dir_with(env_vars(&[("LOCKBOX_DIR", files.to_str().unwrap())]));
+    common::unlock(&files);
+
+    let err = result.expect_err("a locked override has to be refused");
+    assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+    assert!(err.to_string().contains(files.to_str().unwrap()), "{err}");
 }

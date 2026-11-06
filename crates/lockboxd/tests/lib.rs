@@ -50,6 +50,25 @@ impl Drop for TempDir {
     }
 }
 
+/// Make `dir` read-only and report on whether writes are refused.
+fn lock(dir: &Path) -> bool {
+    let mut permissions = std::fs::metadata(dir).expect("metadata").permissions();
+    permissions.set_mode(0o500);
+    std::fs::set_permissions(dir, permissions).expect("lock directory");
+
+    let probe = dir.join(".probe");
+    let locked = std::fs::write(&probe, "").is_err();
+    let _ = std::fs::remove_file(&probe);
+    locked
+}
+
+/// Unlock `dir` and give it full permissions again.
+fn unlock(dir: &Path) {
+    let mut permissions = std::fs::metadata(dir).expect("metadata").permissions();
+    permissions.set_mode(0o700);
+    std::fs::set_permissions(dir, permissions).expect("unlock directory");
+}
+
 /// One `GET` over the socket which is read and then subsequently closes the
 /// connection.
 async fn get(socket: &Path, path: &str) -> String {
@@ -236,4 +255,24 @@ fn restores_a_missing_public_key_file() {
     assert_eq!(first.public(), second.public());
     let filed = std::fs::read_to_string(dir.join(PUBLIC_FILE)).expect("public key file");
     assert_eq!(filed.trim(), second.public());
+}
+
+#[test]
+fn refuses_to_generate_a_keypair_it_cannot_write() {
+    let dir = TempDir::new();
+    if !lock(dir.path()) {
+        unlock(dir.path());
+        return;
+    }
+
+    let result = load_keypair(dir.path());
+    unlock(dir.path());
+
+    let err = match result {
+        Ok(_) => panic!("a locked directory must not be given a new keypair"),
+        Err(err) => err,
+    };
+    assert!(err.to_string().contains("secret.key"), "{err}");
+    assert!(!dir.join(SECRET_FILE).exists());
+    assert!(!dir.join(PUBLIC_FILE).exists());
 }

@@ -36,5 +36,25 @@
     "allow_concurrent_runs": false,
     "reveal": "always",
     "save": "all"
+  },
+  {
+    "label": "check windows builds for lockbox-proto",
+    "command": "cargo",
+    "args": [
+      "clippy",
+      "-p",
+      "lockbox-proto",
+      "--all-targets",
+      "--target",
+      "x86_64-pc-windows-msvc",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success",
+    "save": "all"
   }
 ]
