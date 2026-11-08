@@ -5,5 +5,6 @@
 //! runner. Every query goes through [`db::Db::call`].
 
 pub mod db;
+pub mod local;
 
 pub use db::{Db, Error};

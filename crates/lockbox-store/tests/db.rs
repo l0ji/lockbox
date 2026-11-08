@@ -1,37 +1,11 @@
 //! Tests for [`lockbox_store::db`].
 
-use std::{
-    path::PathBuf,
-    sync::atomic::{AtomicU32, Ordering},
-    thread,
-};
+mod common;
 
+use std::thread;
+
+use common::Temp;
 use lockbox_store::{Db, Error};
-
-/// A throwaway directory which is removed when the test ends.
-struct Temp(PathBuf);
-
-impl Temp {
-    fn new(name: &str) -> Self {
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("lockbox-store-{name}-{}-{id}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("create test dir");
-        Self(dir)
-    }
-
-    /// Path of the database file inside the directory.
-    fn db(&self) -> PathBuf {
-        self.0.join("test.db")
-    }
-}
-
-impl Drop for Temp {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 /// Schema version recorded in the file.
 async fn version(db: &Db) -> u32 {
