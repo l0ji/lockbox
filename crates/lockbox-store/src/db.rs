@@ -22,6 +22,8 @@ pub enum Error {
     TooNew { found: u32, known: u32 },
     /// Could not find the row requested by the call.
     NotFound,
+    /// The databse rejected the call.
+    Invalid(String),
     /// The database thread was closed.
     Closed,
 }
@@ -35,6 +37,7 @@ impl fmt::Display for Error {
                 write!(f, "database version {found}, expected version {known}")
             }
             Self::NotFound => write!(f, "row not found"),
+            Self::Invalid(message) => write!(f, "{message}"),
             Self::Closed => write!(f, "database thread is gone"),
         }
     }
@@ -45,7 +48,7 @@ impl std::error::Error for Error {
         match self {
             Self::Sqlite(error) => Some(error),
             Self::Io(error) => Some(error),
-            Self::TooNew { .. } | Self::NotFound | Self::Closed => None,
+            Self::TooNew { .. } | Self::NotFound | Self::Invalid(_) | Self::Closed => None,
         }
     }
 }
