@@ -1,0 +1,11 @@
+[package]
+name = "lockbox-store"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tokio.workspace = true

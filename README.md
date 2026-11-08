@@ -12,6 +12,7 @@ the pedant's stumbleupon (it's a link aggregator).
 | --- | --- | --- |
 | `lockbox-core` | lib | Reference implementation of the protocol server |
 | `lockbox-proto` | lib | Technical specification of the protocol |
+| `lockbox-store` | lib | Persistent store for local and federated data |
 | `lockboxd` | bin | Persistent UNIX socket daemon |
 | `lockbox-web` | bin | Standard web client |
 
