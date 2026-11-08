@@ -15,10 +15,10 @@ use bech32::{Bech32m, ByteIterExt, Fe32, Fe32IterExt, Hrp, primitives::decode::C
 pub const KEY_LEN: usize = 32;
 
 /// Prefix of an encoded public key.
-pub const PUBLIC_PREFIX: &str = "lbox0";
+pub const PUBLIC_PREFIX: &str = "lbox";
 
 /// Prefix of an encoded secret key.
-pub const SECRET_PREFIX: &str = "lsec0";
+pub const SECRET_PREFIX: &str = "lsec";
 
 // Both prefixes are valid ASCII, no need to check the string
 const PUBLIC_HRP: Hrp = Hrp::parse_unchecked(PUBLIC_PREFIX);

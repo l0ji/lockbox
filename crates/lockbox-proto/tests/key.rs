@@ -8,13 +8,13 @@ const BYTES: [u8; KEY_LEN] = [
     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
 ];
 
-const PUBLIC: &str = "lbox01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sw7hefe";
-const SECRET: &str = "lsec01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sjhjmgt";
+const PUBLIC: &str = "lbox1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0ssqs23x";
+const SECRET: &str = "lsec1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s3p0mx6";
 
 #[test]
 fn encodes_a_public_key() {
     assert_eq!(key::encode_public(&BYTES), PUBLIC);
-    assert_eq!(PUBLIC.len(), 64);
+    assert_eq!(PUBLIC.len(), 63);
 }
 
 #[test]
@@ -37,7 +37,7 @@ fn round_trips_arbitrary_keys() {
     }
     assert_eq!(
         key::encode_public(&[0; KEY_LEN]),
-        "lbox01qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq82umfq"
+        "lbox1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqe5mg3l"
     );
 }
 
@@ -51,25 +51,25 @@ fn prefixes_are_kept_apart() {
 
 #[test]
 fn refuses_a_broken_checksum() {
-    let broken = "lbox01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sw7hefq";
+    let broken = "lbox1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0ssqs23q";
     assert_eq!(key::decode_public(broken), Err(KeyError::Encoding));
 }
 
 #[test]
 fn refuses_a_plain_bech32_checksum() {
-    let bech32 = "lbox01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0smz84vm";
+    let bech32 = "lbox1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9uqx5y";
     assert_eq!(key::decode_public(bech32), Err(KeyError::Encoding));
 }
 
 #[test]
 fn refuses_upper_case() {
-    let upper = "LBOX01QQQSYQCYQ5RQWZQFPG9SCRGWPUGPZYSNZS23V9CCRYDPK8QARC0SW7HEFE";
+    let upper = "LBOX1QQQSYQCYQ5RQWZQFPG9SCRGWPUGPZYSNZS23V9CCRYDPK8QARC0SSQS23X";
     assert_eq!(key::decode_public(upper), Err(KeyError::Encoding));
 }
 
 #[test]
 fn refuses_a_payload_that_is_not_a_key() {
-    let short = "lbox01qqqsyqcyq5rqwzqfpg9scrgwpugpzysne7flpx";
+    let short = "lbox1qqqsyqcyq5rqwzqfpg9scrgwpu8ltxjk";
     assert_eq!(key::decode_public(short), Err(KeyError::Length));
 }
 

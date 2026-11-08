@@ -8,14 +8,14 @@ octets. The keypair is used primarily as the identity system on lockbox.
 A key of either half is encoded as a bech32m string whose human-readable part
 (HRP) identifies the half:
 
-| Half       | HRP     | Example                                                            |
-|------------|---------|--------------------------------------------------------------------|
-| Public key | `lbox0` | `lbox01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sw7hefe` |
-| Secret key | `lsec0` | `lsec01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sjhjmgt` |
+| Half       | HRP    | Example                                                           |
+|------------|--------|-------------------------------------------------------------------|
+| Public key | `lbox` | `lbox1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0ssqs23x` |
+| Secret key | `lsec` | `lsec1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s3p0mx6` |
 
 The data part is the 32 octets of the key, converted to 5-bit groups as
 specified in [BIP-350]. No other payload length is valid. Encoded strings are
-64 characters long: the HRP, the `1` separator, 52 data characters, and six
+63 characters long: the HRP, the `1` separator, 52 data characters, and six
 checksum characters.
 
 Encoders MUST emit lower case. Decoders MUST reject upper case, MUST reject a
@@ -33,13 +33,13 @@ The 32 unencoded octets of the public key are used as the endpoint identifier
 of the node. No transformation, truncation, or additional hash is applied. The
 identifier is immutable for the lifetime of a keypair.
 
-The `lbox0` string is the presentation form of the public key and is the form
+The `lbox` string is the presentation form of the public key and is the form
 used in user-facing text. The local API reports the identifier in lower-case
 hexadecimal, as `Status.node_id`.
 
 ### Fingerprint
 
-A fingerprint is the first ten characters of the data part of the `lbox0`
+A fingerprint is the first ten characters of the data part of the `lbox`
 encoding, in two groups of five separated by a hyphen. It is eleven characters
 long and carries no checksum.
 
@@ -58,8 +58,8 @@ The keypair is stored as two files in a single directory associated to the proto
 
 | File         | Content              | Permission bits (UNIX) |
 |--------------|----------------------|------------------------|
-| `secret.key` | The `lsec0` string   | `0600`                 |
-| `public.key` | The `lbox0` string   | `0644`                 |
+| `secret.key` | The `lsec` string    | `0600`                 |
+| `public.key` | The `lbox` string    | `0644`                 |
 
 Each file holds one encoded string followed by a newline. Decoders MUST ignore
 leading and trailing whitespace and MUST reject any input that decodes to more
@@ -93,7 +93,7 @@ On startup an implementation reads `secret.key` from the resolved directory:
 
 - when the file is missing, the implementation generates a new keypair, writes
   both files, and reports the public key together with the path of `secret.key`;
-- when the file is present but does not decode as a `lsec0` string, the
+- when the file is present but does not decode as a `lsec` string, the
   implementation MUST fail. A keypair MUST NOT be generated in that case;
 - when `secret.key` is present and `public.key` is missing, the implementation
   writes `public.key` again from the secret key.
@@ -126,21 +126,21 @@ The octets `00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16
 17 18 19 1a 1b 1c 1d 1e 1f`:
 
 ```txt
-lbox01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sw7hefe
-lsec01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sjhjmgt
+lbox1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0ssqs23x
+lsec1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s3p0mx6
 ```
 
 Thirty-two zero octets:
 
 ```txt
-lbox01qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq82umfq
+lbox1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqe5mg3l
 ```
 
 The same thirty-two octets under the bech32 checksum, which a decoder MUST
 reject:
 
 ```txt
-lbox01qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0smz84vm
+lbox1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9uqx5y
 ```
 
 ## References

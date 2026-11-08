@@ -132,7 +132,7 @@ pub struct Keypair {
 }
 
 impl Keypair {
-    /// Public key of this account, encoded with the `lbox0` prefix.
+    /// Public key of this account, encoded with the `lbox` prefix.
     pub fn public(&self) -> String {
         encoding::encode_public(self.secret.public().as_bytes())
     }

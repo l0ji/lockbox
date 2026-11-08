@@ -216,7 +216,7 @@ fn generates_an_account_keypair_when_there_is_none() {
     let keypair = load_keypair(dir.path()).expect("keypair");
 
     assert!(keypair.created);
-    assert!(keypair.public().starts_with("lbox0"));
+    assert!(keypair.public().starts_with("lbox1"));
     let public = keypair.public();
     let fingerprint = keypair.fingerprint().replace('-', "");
     let data = &public[PUBLIC_PREFIX.len() + 1..];
