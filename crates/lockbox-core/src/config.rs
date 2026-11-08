@@ -26,7 +26,7 @@ pub fn dir() -> io::Result<PathBuf> {
 pub fn dir_with(system: &Path, var: impl Fn(&str) -> Option<OsString>) -> io::Result<PathBuf> {
     match non_empty(var(DIR_ENV)) {
         Some(dir) => prepare(Path::new(&dir)),
-        None if system.is_dir() => Ok(system.to_path_buf()),
+        None if is_dir(system) => Ok(system.to_path_buf()),
         None => user_dir_with(var),
     }
 }
@@ -76,6 +76,11 @@ fn prepare(dir: &Path) -> io::Result<PathBuf> {
         io::Error::new(err.kind(), format!("cannot use {}: {err}", dir.display()))
     })?;
     Ok(dir.to_path_buf())
+}
+
+/// Safe function for verifying if `path` is a directory.
+fn is_dir(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|meta| meta.is_dir())
 }
 
 fn non_empty(value: Option<OsString>) -> Option<OsString> {

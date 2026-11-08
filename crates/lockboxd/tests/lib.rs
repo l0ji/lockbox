@@ -101,7 +101,10 @@ async fn binds_a_private_socket() {
     let socket = dir.join("nest/lockbox/daemon.sock");
 
     let listener = bind(&socket).expect("bind must succeed");
-    assert!(socket.exists(), "socket file must exist");
+    assert!(
+        socket.try_exists().expect("check socket"),
+        "socket file must exist"
+    );
     assert_eq!(mode(&socket), 0o600, "socket must be owner-only");
     assert_eq!(
         mode(socket.parent().expect("socket has a directory")),
@@ -119,7 +122,10 @@ async fn replaces_a_socket_left_by_a_dead_daemon() {
 
     let dead = std::os::unix::net::UnixListener::bind(&socket).expect("bind stale socket");
     drop(dead);
-    assert!(socket.exists(), "stale socket file must remain");
+    assert!(
+        socket.try_exists().expect("check socket"),
+        "stale socket file must remain"
+    );
 
     let listener = bind(&socket).expect("bind must replace the stale socket");
     assert!(
@@ -172,12 +178,15 @@ async fn serves_the_local_api() {
     });
 
     for _ in 0..200 {
-        if socket.exists() {
+        if socket.try_exists().unwrap_or(false) {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    assert!(socket.exists(), "daemon must bind its socket");
+    assert!(
+        socket.try_exists().expect("check socket"),
+        "daemon must bind its socket"
+    );
 
     let reply = get(&socket, HEALTH_PATH).await;
     assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
@@ -195,7 +204,10 @@ async fn serves_the_local_api() {
     task.await
         .expect("serve task must not panic")
         .expect("serve must stop cleanly");
-    assert!(!socket.exists(), "socket must be removed on shutdown");
+    assert!(
+        !socket.try_exists().expect("check socket"),
+        "socket must be removed on shutdown"
+    );
 }
 
 #[test]
@@ -209,9 +221,14 @@ fn generates_an_account_keypair_when_there_is_none() {
     let fingerprint = keypair.fingerprint().replace('-', "");
     let data = &public[PUBLIC_PREFIX.len() + 1..];
     assert_eq!(&data[..fingerprint.len()], fingerprint);
-    assert!(dir.join(SECRET_FILE).is_file());
+
+    assert!(
+        dir.join(SECRET_FILE)
+            .try_exists()
+            .expect("check secret file")
+    );
     let filed = std::fs::read_to_string(dir.join(PUBLIC_FILE)).expect("public key file");
-    assert_eq!(filed.trim(), keypair.public());
+    assert_eq!(filed.trim(), public);
     assert_eq!(
         std::fs::read_to_string(dir.join(SECRET_FILE))
             .expect("secret key file")
@@ -242,7 +259,11 @@ fn refuses_a_corrupt_secret_file() {
         Err(err) => err,
     };
     assert!(err.to_string().contains("secret.key"), "{err}");
-    assert!(!dir.join(PUBLIC_FILE).exists());
+    assert!(
+        !dir.join(PUBLIC_FILE)
+            .try_exists()
+            .expect("check public file")
+    );
 }
 
 #[test]
@@ -253,8 +274,9 @@ fn restores_a_missing_public_key_file() {
 
     let second = load_keypair(dir.path()).expect("second keypair");
     assert_eq!(first.public(), second.public());
+    let public = second.public();
     let filed = std::fs::read_to_string(dir.join(PUBLIC_FILE)).expect("public key file");
-    assert_eq!(filed.trim(), second.public());
+    assert_eq!(filed.trim(), public);
 }
 
 #[test]
@@ -273,6 +295,14 @@ fn refuses_to_generate_a_keypair_it_cannot_write() {
         Err(err) => err,
     };
     assert!(err.to_string().contains("secret.key"), "{err}");
-    assert!(!dir.join(SECRET_FILE).exists());
-    assert!(!dir.join(PUBLIC_FILE).exists());
+    assert!(
+        !dir.join(SECRET_FILE)
+            .try_exists()
+            .expect("check secret file")
+    );
+    assert!(
+        !dir.join(PUBLIC_FILE)
+            .try_exists()
+            .expect("check public file")
+    );
 }

@@ -132,5 +132,11 @@ fn a_locked_directory_is_refused() {
 
     let err = result.expect_err("a locked directory has to refuse the write");
     assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
-    assert!(!temp.path().join(SECRET_FILE).exists());
+    assert!(
+        !temp
+            .path()
+            .join(SECRET_FILE)
+            .try_exists()
+            .expect("check secret file")
+    );
 }

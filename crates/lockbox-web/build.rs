@@ -1,19 +1,19 @@
 //! Embed `static/` into the binary so it ships as a single executable.
 
 use std::{
-    env, fs,
+    env, error, fs,
     path::{Path, PathBuf},
 };
 
-fn main() {
+fn main() -> Result<(), Box<dyn error::Error>> {
     println!("cargo:rerun-if-changed=static");
 
-    let manifest = env::var("CARGO_MANIFEST_DIR").expect("manifest dir");
+    let manifest = env::var("CARGO_MANIFEST_DIR")?;
     let root = Path::new(&manifest).join("static");
-    let out = Path::new(&env::var("OUT_DIR").expect("out dir")).join("static.rs");
+    let out = Path::new(&env::var("OUT_DIR")?).join("static.rs");
 
     let mut files = Vec::new();
-    collect(&root, &mut files);
+    collect(&root, &mut files)?;
     files.sort();
 
     let mut source = String::from(
@@ -21,7 +21,9 @@ fn main() {
          pub const ASSETS: &[(&str, &[u8])] = &[\n",
     );
     for file in files {
-        let path = file.strip_prefix(&root).expect("file is under static");
+        let path = file
+            .strip_prefix(&root)
+            .map_err(|_| format!("{} is outside {}", file.display(), root.display()))?;
         let key = path.to_string_lossy().replace('\\', "/");
         let source_path = file.to_string_lossy().replace('\\', "/");
         source.push_str(&format!(
@@ -30,23 +32,22 @@ fn main() {
     }
     source.push_str("];\n");
 
-    fs::write(out, source).expect("write embedded assets");
+    fs::write(out, source)?;
+    Ok(())
 }
 
 /// Walks the `dir` and grabs all the files that it needs.
-fn collect(dir: &Path, files: &mut Vec<PathBuf>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(err) => panic!("cannot read {}: {err}", dir.display()),
-    };
+fn collect(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), Box<dyn error::Error>> {
+    let entries = fs::read_dir(dir)?;
 
     for entry in entries {
-        let path = entry.expect("read dir entry").path();
-        let meta = fs::symlink_metadata(&path).expect("stat static entry");
+        let path = entry?.path();
+        let meta = fs::symlink_metadata(&path)?;
         if meta.is_dir() {
-            collect(&path, files);
+            collect(&path, files)?;
         } else if meta.is_file() {
             files.push(path);
         }
     }
+    Ok(())
 }

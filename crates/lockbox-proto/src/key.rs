@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use bech32::{Bech32m, Hrp, primitives::decode::CheckedHrpstring};
+use bech32::{Bech32m, ByteIterExt, Fe32, Fe32IterExt, Hrp, primitives::decode::CheckedHrpstring};
 
 /// Length of a public or secret key in bytes.
 pub const KEY_LEN: usize = 32;
@@ -19,6 +19,10 @@ pub const PUBLIC_PREFIX: &str = "lbox0";
 
 /// Prefix of an encoded secret key.
 pub const SECRET_PREFIX: &str = "lsec0";
+
+// Both prefixes are valid ASCII, no need to check the string
+const PUBLIC_HRP: Hrp = Hrp::parse_unchecked(PUBLIC_PREFIX);
+const SECRET_HRP: Hrp = Hrp::parse_unchecked(SECRET_PREFIX);
 
 /// A string that is not an encoded lockbox key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,44 +50,46 @@ impl std::error::Error for KeyError {}
 
 /// Encode a public key with the [`PUBLIC_PREFIX`].
 pub fn encode_public(key: &[u8; KEY_LEN]) -> String {
-    encode(PUBLIC_PREFIX, key)
+    encode(PUBLIC_HRP, key)
 }
 
 /// Encode a secret key with the [`SECRET_PREFIX`].
 pub fn encode_secret(key: &[u8; KEY_LEN]) -> String {
-    encode(SECRET_PREFIX, key)
+    encode(SECRET_HRP, key)
 }
 
 /// Decode a public key, refusing a secret key or any other prefix.
 pub fn decode_public(text: &str) -> Result<[u8; KEY_LEN], KeyError> {
-    decode(PUBLIC_PREFIX, text)
+    decode(PUBLIC_HRP, text)
 }
 
 /// Decode a secret key, refusing a public key or any other prefix.
 pub fn decode_secret(text: &str) -> Result<[u8; KEY_LEN], KeyError> {
-    decode(SECRET_PREFIX, text)
+    decode(SECRET_HRP, text)
 }
 
-fn encode(prefix: &str, key: &[u8; KEY_LEN]) -> String {
-    bech32::encode::<Bech32m>(hrp(prefix), key).expect("a key fits in a bech32m string")
+fn encode(hrp: Hrp, key: &[u8; KEY_LEN]) -> String {
+    // Skips the unnecessary `bech32::encode` checks 
+    key.iter()
+        .copied()
+        .bytes_to_fes()
+        .with_checksum::<Bech32m>(&hrp)
+        .chars()
+        .collect()
 }
 
-fn decode(prefix: &str, text: &str) -> Result<[u8; KEY_LEN], KeyError> {
+fn decode(hrp: Hrp, text: &str) -> Result<[u8; KEY_LEN], KeyError> {
     let checked = CheckedHrpstring::new::<Bech32m>(text).map_err(|_| KeyError::Encoding)?;
-    if checked.hrp() != hrp(prefix) {
+    if checked.hrp() != hrp {
         return Err(KeyError::Prefix);
     }
     let bytes: Vec<u8> = checked.byte_iter().collect();
     let key: [u8; KEY_LEN] = bytes.try_into().map_err(|_| KeyError::Length)?;
     // Folds padding, length and case checks into a single comparison
-    if encode(prefix, &key) != text {
+    if encode(hrp, &key) != text {
         return Err(KeyError::Encoding);
     }
     Ok(key)
-}
-
-fn hrp(prefix: &str) -> Hrp {
-    Hrp::parse(prefix).expect("both key prefixes are valid human readable parts")
 }
 
 /// Number of data characters a fingerprint keeps.
@@ -95,9 +101,14 @@ pub const FINGERPRINT_LEN: usize = 10;
 /// [`PUBLIC_PREFIX`] encoding, in two groups of five. A fingerprint does not
 /// identify a node and is meant STRICTLY for human comparison.
 pub fn fingerprint(key: &[u8; KEY_LEN]) -> String {
-    let public = encode_public(key);
-    let data = &public[PUBLIC_PREFIX.len() + 1..][..FINGERPRINT_LEN];
-    let (head, tail) = data.split_at(FINGERPRINT_LEN / 2);
+    let data: String = key
+        .iter()
+        .copied()
+        .bytes_to_fes()
+        .take(FINGERPRINT_LEN)
+        .map(Fe32::to_char)
+        .collect();
+    let (head, tail) = data.split_at(data.len() / 2);
     format!("{head}-{tail}")
 }
 

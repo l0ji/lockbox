@@ -68,7 +68,13 @@ fn the_system_directory_wins_when_it_exists() {
     let dir =
         config::dir_with(system.path(), env_with_home(temp.path(), &[])).expect("system directory");
     assert_eq!(dir, system.path());
-    assert!(!temp.path().join(".config").exists());
+    assert!(
+        !temp
+            .path()
+            .join(".config")
+            .try_exists()
+            .expect("check config dir")
+    );
 }
 
 #[test]

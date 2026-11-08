@@ -103,7 +103,7 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
 ///
 /// If the path is live, it returns an `AddrInUse` error instead.
 fn clear_stale_socket(socket: &Path) -> io::Result<()> {
-    if !socket.exists() {
+    if !socket.try_exists()? {
         return Ok(());
     }
     match std::os::unix::net::UnixStream::connect(socket) {
@@ -182,11 +182,17 @@ fn create_keypair(dir: &Path) -> Result<Keypair, BoxError> {
 
 /// Write the public key file back when only the secret one still exists.
 fn replace_public_file(dir: &Path, keypair: &Keypair) {
-    if dir.join(key::PUBLIC_FILE).exists() {
-        return;
+    let file = dir.join(key::PUBLIC_FILE);
+    match file.try_exists() {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(err) => {
+            tracing::warn!(file = %file.display(), "cannot check the public key: {err}");
+            return;
+        }
     }
     let public = keypair.secret.public();
     if let Err(err) = key::write_public(dir, public.as_bytes()) {
-        tracing::warn!(file = %key::PUBLIC_FILE, "cannot write the public key: {err}");
+        tracing::warn!(file = %file.display(), "cannot write the public key: {err}");
     }
 }
