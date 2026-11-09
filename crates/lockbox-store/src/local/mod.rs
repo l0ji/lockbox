@@ -16,6 +16,7 @@ pub mod bookmarks;
 pub mod entries;
 pub mod feeds;
 pub mod folders;
+pub mod settings;
 pub mod tags;
 pub mod topics;
 
@@ -25,6 +26,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/local/0002_entry_search.sql"),
     include_str!("../../migrations/local/0003_bookmarks.sql"),
     include_str!("../../migrations/local/0004_bookmark_search.sql"),
+    include_str!("../../migrations/local/0005_preferences.sql"),
 ];
 
 /// Open the local database at `path`.

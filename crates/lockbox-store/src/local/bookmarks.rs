@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, typ
 use super::{
     Placed, Visibility,
     folders::{self, Kind},
-    renumber,
+    renumber, settings,
 };
 use crate::{Db, Error};
 
@@ -118,15 +118,19 @@ pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark
         if let Some(folder) = bookmark.folder_id {
             folders::file_into(&transaction, folder)?;
         }
+        let visibility = match settings::publish_bookmarks(&transaction)? {
+            true => Visibility::Public,
+            false => Visibility::Private,
+        };
 
         transaction.execute(
             "INSERT INTO bookmark (
                  url, canonical_url, title, note, folder_id, position, entry_id,
-                 created_at, updated_at
+                 visibility, created_at, updated_at
              )
              VALUES (?1, ?2, ?3, ?4, ?5,
                  (SELECT coalesce(max(position) + 1, 0) FROM bookmark WHERE folder_id IS ?5),
-                 ?6, ?7, ?7)
+                 ?6, ?7, ?8, ?8)
              ON CONFLICT (canonical_url) DO NOTHING",
             params![
                 bookmark.url,
@@ -135,6 +139,7 @@ pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark
                 bookmark.note,
                 bookmark.folder_id,
                 bookmark.entry_id,
+                visibility,
                 now,
             ],
         )?;

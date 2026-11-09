@@ -64,3 +64,46 @@ async fn renames_and_deletes_topics() {
     assert!(matches!(error, Error::NotFound), "{error}");
     db.close().await.expect("close database");
 }
+
+#[tokio::test]
+async fn follows_and_unfollows_topics() {
+    let temp = Temp::new("follow");
+    let db = open(&temp);
+
+    let followed = topics::follow(&db, "Rust", 10).await.expect("follow topic");
+    assert_eq!(followed.name, "Rust");
+    assert_eq!(followed.followed_at, Some(10));
+    let followed_topics = topics::followed(&db).await.expect("followed topics");
+    assert_eq!(followed_topics.len(), 1);
+    assert_eq!(followed_topics[0].id, followed.id);
+
+    // Following again keeps the time it started
+    let again = topics::follow(&db, "rust", 20).await.expect("follow again");
+    assert_eq!(again.id, followed.id);
+    assert_eq!(again.name, "Rust");
+    assert_eq!(again.followed_at, Some(10));
+
+    // A tag on the same topic reuses the row which is already there
+    let saved = bookmark(&db, "https://example.com/a", None, 30).await;
+    tags::set(&db, saved, vec!["Rust".to_owned()], 40)
+        .await
+        .expect("tag");
+    assert_eq!(topics::list(&db).await.expect("list topics").len(), 1);
+
+    topics::unfollow(&db, "rust").await.expect("unfollow");
+    assert!(
+        topics::followed(&db)
+            .await
+            .expect("followed topics")
+            .is_empty()
+    );
+    let listed = topics::list(&db).await.expect("list topics");
+    assert_eq!(listed[0].followed_at, None);
+    assert_eq!(listed[0].name, "Rust", "the label stays");
+
+    // Unfollowing something which is not followed does nothing
+    topics::unfollow(&db, "Nothing")
+        .await
+        .expect("unfollow a topic which is not there");
+    db.close().await.expect("close database");
+}

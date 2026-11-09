@@ -7,5 +7,6 @@ mod entries;
 mod feeds;
 mod fixtures;
 mod folders;
+mod settings;
 mod tags;
 mod topics;

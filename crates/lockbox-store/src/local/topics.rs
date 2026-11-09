@@ -45,6 +45,50 @@ pub async fn rename(db: &Db, id: i64, name: &str) -> Result<Topic, Error> {
     .await
 }
 
+/// Follow a topic, creating it in the database when it is new.
+///
+/// Following a topic which is already followed keeps the time it was started.
+pub async fn follow(db: &Db, name: &str, now: i64) -> Result<Topic, Error> {
+    let name = name.to_owned();
+    db.call(move |connection| {
+        let transaction = connection.transaction()?;
+        let topic = find_or_create(&transaction, &name, now)?;
+        let sql = format!(
+            "UPDATE topic SET followed_at = coalesce(followed_at, ?1)
+             WHERE id = ?2 RETURNING {COLUMNS}"
+        );
+        let topic = transaction.query_row(&sql, params![now, topic.id], from_row)?;
+        transaction.commit()?;
+        Ok(topic)
+    })
+    .await
+}
+
+/// Stop following a topic. Does nothing if the topic was never followed.
+pub async fn unfollow(db: &Db, name: &str) -> Result<(), Error> {
+    let name = name.to_owned();
+    db.call(move |connection| {
+        connection.execute(
+            "UPDATE topic SET followed_at = NULL WHERE name = ?1 AND followed_at IS NOT NULL",
+            [&name],
+        )?;
+        Ok(())
+    })
+    .await
+}
+
+/// The topics the user follows, sorted by name.
+pub async fn followed(db: &Db) -> Result<Vec<Topic>, Error> {
+    db.call(|connection| {
+        let sql =
+            format!("SELECT {COLUMNS} FROM topic WHERE followed_at IS NOT NULL ORDER BY name");
+        let mut statement = connection.prepare(&sql)?;
+        let topics = statement.query_map([], from_row)?;
+        Ok(topics.collect::<Result<Vec<_>, _>>()?)
+    })
+    .await
+}
+
 /// Remove one topic, which also removes it from all bookmarks that have it
 /// assigned to them.
 pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {

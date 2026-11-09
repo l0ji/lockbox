@@ -8,7 +8,7 @@ use lockbox_store::{
         Visibility,
         bookmarks::{self, NewBookmark, Scope},
         folders::{self, NewFolder},
-        tags, topics,
+        settings, tags, topics,
     },
 };
 
@@ -396,4 +396,37 @@ fn bookmark_titles(page: &bookmarks::Page) -> Vec<&str> {
         .iter()
         .map(|bookmark| bookmark.title.as_str())
         .collect()
+}
+
+#[tokio::test]
+async fn takes_the_publish_default_from_the_settings() {
+    let temp = Temp::new("publish-default");
+    let db = open(&temp);
+
+    let mut changed = settings::read(&db).await.expect("read settings");
+    changed.publish_bookmarks = false;
+    settings::write(&db, &changed)
+        .await
+        .expect("write settings");
+
+    let private = bookmarks::create(&db, NewBookmark::new("https://a.example", "A"), 10)
+        .await
+        .expect("save bookmark");
+    assert_eq!(private.visibility, Visibility::Private);
+
+    // Turning publishing back on changes what comes after, not what is here
+    changed.publish_bookmarks = true;
+    settings::write(&db, &changed)
+        .await
+        .expect("write settings");
+    let public = bookmarks::create(&db, NewBookmark::new("https://b.example", "B"), 20)
+        .await
+        .expect("save bookmark");
+    assert_eq!(public.visibility, Visibility::Public);
+    let stored = bookmarks::get(&db, private.id)
+        .await
+        .expect("read bookmark")
+        .expect("bookmark");
+    assert_eq!(stored.visibility, Visibility::Private);
+    db.close().await.expect("close database");
 }
