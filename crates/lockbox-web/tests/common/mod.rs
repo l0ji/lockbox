@@ -9,13 +9,16 @@ use std::{
 };
 
 use axum::{Json, Router, routing::get};
-use lockbox_proto::api::{STATUS_PATH, Status};
+use lockbox_proto::{
+    PROTOCOL_VERSION,
+    api::node::{STATUS_PATH, Status},
+};
 
 /// A sample status reply from the daemon.
 pub fn sample_status() -> Status {
     Status {
-        protocol_version: 1,
-        daemon_version: "0.1.0".to_owned(),
+        protocol_version: PROTOCOL_VERSION,
+        software_version: "0.1.0".to_owned(),
         node_id: "test-node".to_owned(),
         relay_urls: vec!["https://relay.example./".to_owned()],
         direct_addrs: vec!["127.0.0.1:5555".to_owned()],

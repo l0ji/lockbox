@@ -12,7 +12,10 @@ use axum::{
     routing::get,
 };
 use common::{Stub, sample_status};
-use lockbox_proto::api::{ApiError, STATUS_PATH, Status};
+use lockbox_proto::api::{
+    ApiError, Code,
+    node::{STATUS_PATH, Status},
+};
 use lockbox_web::{AppState, DaemonClient, router};
 use tower::ServiceExt;
 
@@ -86,6 +89,7 @@ async fn reports_daemon_error_as_bad_gateway() {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError {
+                    code: Code::Internal,
                     error: "node is on fire".to_owned(),
                 }),
             )

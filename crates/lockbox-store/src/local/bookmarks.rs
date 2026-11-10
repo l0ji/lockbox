@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, typ
 use super::{
     Placed, Visibility,
     folders::{self, Kind},
-    renumber, settings,
+    renumber,
 };
 use crate::{Db, Error};
 
@@ -42,11 +42,12 @@ pub struct NewBookmark {
     pub note: Option<String>,
     pub folder_id: Option<i64>,
     pub entry_id: Option<i64>,
+    pub visibility: Visibility,
 }
 
 impl NewBookmark {
-    /// A link saved under its own address.
-    pub fn new(url: impl Into<String>, title: impl Into<String>) -> Self {
+    /// A link saved under its own address, published depending on `visibility`.
+    pub fn new(url: impl Into<String>, title: impl Into<String>, visibility: Visibility) -> Self {
         let url = url.into();
         Self {
             canonical_url: url.clone(),
@@ -55,6 +56,7 @@ impl NewBookmark {
             note: None,
             folder_id: None,
             entry_id: None,
+            visibility,
         }
     }
 }
@@ -118,11 +120,6 @@ pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark
         if let Some(folder) = bookmark.folder_id {
             folders::file_into(&transaction, folder)?;
         }
-        let visibility = match settings::publish_bookmarks(&transaction)? {
-            true => Visibility::Public,
-            false => Visibility::Private,
-        };
-
         transaction.execute(
             "INSERT INTO bookmark (
                  url, canonical_url, title, note, folder_id, position, entry_id,
@@ -139,7 +136,7 @@ pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark
                 bookmark.note,
                 bookmark.folder_id,
                 bookmark.entry_id,
-                visibility,
+                bookmark.visibility,
                 now,
             ],
         )?;

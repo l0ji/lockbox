@@ -30,5 +30,7 @@ cargo run -p lockbox-web      # starts a web server on http://127.0.0.1:8080/
 
 | Route | Reply |
 | --- | --- |
-| `GET /api/health` | `{"ok":true}` |
-| `GET /api/status` | returns general information about the node |
+| `GET /api/node/health` | `{"ok":true}` |
+| `GET /api/node/status` | returns general information about the node |
+| `GET /api/node/settings` | every setting the user can change |
+| `PATCH /api/node/settings` | modify the current node settings |

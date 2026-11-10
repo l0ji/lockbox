@@ -4,7 +4,7 @@ mod common;
 
 use askama::Template;
 use common::sample_status;
-use lockbox_proto::api::Status;
+use lockbox_proto::{PROTOCOL_VERSION, api::node::Status};
 use lockbox_web::Page;
 
 /// Render a page, which isn't expected to fail with the embedded page.
@@ -25,7 +25,10 @@ fn renders_a_live_node() {
 
     assert!(html.contains(r#"data-state="live""#), "{html}");
     assert!(html.contains("<dd>test-node</dd>"), "{html}");
-    assert!(html.contains("<dd>1</dd>"), "{html}");
+    assert!(
+        html.contains(&format!("<dd>{PROTOCOL_VERSION}</dd>")),
+        "{html}"
+    );
     assert!(html.contains("<dd>0.1.0</dd>"), "{html}");
     assert!(html.contains("<dd>42s</dd>"), "{html}");
     assert!(html.contains("https://relay.example./"), "{html}");

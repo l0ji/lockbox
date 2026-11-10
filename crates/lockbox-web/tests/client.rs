@@ -4,7 +4,10 @@ mod common;
 
 use axum::{Json, Router, http::StatusCode, routing::get};
 use common::{Stub, sample_status};
-use lockbox_proto::api::{ApiError, STATUS_PATH, Status};
+use lockbox_proto::api::{
+    ApiError, Code,
+    node::{STATUS_PATH, Status},
+};
 use lockbox_web::DaemonClient;
 
 #[tokio::test]
@@ -47,6 +50,7 @@ async fn reports_a_bad_reply_status() {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError {
+                    code: Code::Internal,
                     error: "node is on fire".to_owned(),
                 }),
             )

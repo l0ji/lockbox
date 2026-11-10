@@ -1,7 +1,7 @@
 //! The single page the web client serves.
 
 use askama::Template;
-use lockbox_proto::api::Status;
+use lockbox_proto::api::node::Status;
 
 /// Template context for the status page.
 #[derive(Template)]
@@ -13,7 +13,7 @@ pub struct Page {
     state_text: &'static str,
     node_id: String,
     protocol: String,
-    daemon: String,
+    software: String,
     uptime: String,
     has_relays: bool,
     relays: Vec<String>,
@@ -31,7 +31,7 @@ impl Page {
             state_text: "live",
             node_id: status.node_id,
             protocol: status.protocol_version.to_string(),
-            daemon: status.daemon_version,
+            software: status.software_version,
             uptime: format_uptime(status.uptime_secs),
             has_relays: !status.relay_urls.is_empty(),
             relays: status.relay_urls,
@@ -48,7 +48,7 @@ impl Page {
             state_text: "daemon unreachable",
             node_id: "-".to_owned(),
             protocol: "-".to_owned(),
-            daemon: "-".to_owned(),
+            software: "-".to_owned(),
             uptime: "-".to_owned(),
             has_relays: false,
             relays: Vec::new(),

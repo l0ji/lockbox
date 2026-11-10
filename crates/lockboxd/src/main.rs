@@ -3,10 +3,15 @@
 //! Binds the node, serves the local API on a UNIX socket and runs until
 //! stopped.
 
-use std::{path::PathBuf, process::ExitCode, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    process::ExitCode,
+    sync::Arc,
+};
 
 use lockbox_core::{BoxError, Node, config};
-use lockbox_proto::local;
+use lockbox_proto::{config::LOCAL_DB, local};
+use lockbox_store::{Db, local::open};
 use lockboxd::{AppState, Keypair, load_keypair, serve};
 
 const USAGE: &str = "\
@@ -63,6 +68,7 @@ async fn run(socket: PathBuf, user_keys: bool) -> Result<(), BoxError> {
     };
     let keypair = load_keypair(&dir)?;
     announce(&keypair);
+    let db = open_database(&dir)?;
 
     let node = Arc::new(Node::bind(keypair.secret).await?);
     let node_id = node.id();
@@ -75,10 +81,18 @@ async fn run(socket: PathBuf, user_keys: bool) -> Result<(), BoxError> {
         tracing::info!("node online");
     });
 
-    let result = serve(&socket, AppState::new(Arc::clone(&node)), shutdown_signal()).await;
+    let state = AppState::new(Arc::clone(&node), db);
+    let result = serve(&socket, state, shutdown_signal()).await;
     node.shutdown().await;
     result?;
     Ok(())
+}
+
+/// Open the local database, creating a new one when there is none.
+fn open_database(dir: &Path) -> Result<Arc<Db>, BoxError> {
+    let path = dir.join(LOCAL_DB);
+    let db = open(&path).map_err(|err| format!("cannot open {}: {err}", path.display()))?;
+    Ok(Arc::new(db))
 }
 
 /// Tells the user which account this daemon runs as.

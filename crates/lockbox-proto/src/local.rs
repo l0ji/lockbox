@@ -1,15 +1,15 @@
 //! Definition of how the UNIX socket is opened.
 //!
-//! The daemon binds this path and any clients connects to it, so everything in
-//! the repository should resolve it with [`socket_path`] unless the user
-//! passes an explicit location.
+//! The server which runs a node binds this socket path and any client connects
+//! to it so that everything in the repository should resolve it with
+//! [`socket_path`], unless the user passes an explicit location.
 
 use std::path::PathBuf;
 
 /// Environment variable that overrides the socket path for all binaries.
 pub const SOCKET_ENV: &str = "LOCKBOX_SOCKET";
 
-/// Path to the daemon's UNIX socket.
+/// Path to the UNIX socket that a node listens on.
 ///
 /// [`SOCKET_ENV`] wins when it is set and non-empty. Otherwise it is set to
 /// [`default_socket_path`].

@@ -1,8 +1,8 @@
 //! Shared protocol implementation for lockbox.
 //!
 //! A few constants live here. The p2p protocol is locked by [`ALPN`] and
-//! [`PROTOCOL_VERSION`]. The local HTTP API that the daemon serves on its
-//! UNIX socket and which clients consumes is in [`api`]. Both binaries
+//! [`PROTOCOL_VERSION`]. The local HTTP server ran by a server implementation
+//! which clients consume is in [`api`]. Both binaries
 //! determine where the socket is stored from [`local`]. Account keys are
 //! defined in [`key`] and the names of their files in [`config`].
 //!

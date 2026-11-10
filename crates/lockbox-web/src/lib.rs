@@ -13,7 +13,10 @@ use axum::{
     response::{self, Html, IntoResponse},
     routing::get,
 };
-use lockbox_proto::api::{ApiError, STATUS_PATH, Status};
+use lockbox_proto::api::{
+    ApiError, Code,
+    node::{STATUS_PATH, Status},
+};
 
 pub use client::{ClientError, DaemonClient, Response};
 pub use page::Page;
@@ -113,6 +116,7 @@ async fn status(
             Err((
                 StatusCode::BAD_GATEWAY,
                 Json(ApiError {
+                    code: Code::Internal,
                     error: err.to_string(),
                 }),
             ))

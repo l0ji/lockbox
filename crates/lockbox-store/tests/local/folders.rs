@@ -5,6 +5,7 @@ use crate::fixtures::{bookmark, listed, open};
 use lockbox_store::{
     Error,
     local::{
+        Visibility,
         bookmarks::{self, NewBookmark, Scope},
         folders::{self, Kind, NewFolder},
         tags,
@@ -186,7 +187,7 @@ async fn refuses_to_file_into_a_dynamic_folder() {
         &db,
         NewBookmark {
             folder_id: Some(dynamic.id),
-            ..NewBookmark::new("https://a.example", "A")
+            ..NewBookmark::new("https://a.example", "A", Visibility::Public)
         },
         20,
     )

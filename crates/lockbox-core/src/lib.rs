@@ -6,15 +6,17 @@
 //!
 //! [`config`] resolves and creates the directory for lockbox files.
 //! [`key`] reads and writes the account keypair to the config directory.
+//! [`settings`] holds the preferences that the daemon stores and serves.
 
 pub mod config;
 pub mod key;
+pub mod settings;
 
 use std::time::Instant;
 
 use iroh::{Endpoint, endpoint::presets};
 pub use iroh::{EndpointAddr, EndpointId, SecretKey};
-use lockbox_proto::{PROTOCOL_VERSION, api::Status};
+use lockbox_proto::{PROTOCOL_VERSION, api::node::Status};
 
 /// Error type used across the node's code.
 ///
@@ -76,7 +78,7 @@ impl Node {
         let addr = self.addr();
         Status {
             protocol_version: PROTOCOL_VERSION,
-            daemon_version: env!("CARGO_PKG_VERSION").to_owned(),
+            software_version: env!("CARGO_PKG_VERSION").to_owned(),
             node_id: addr.id.to_string(),
             relay_urls: addr.relay_urls().map(|url| url.to_string()).collect(),
             direct_addrs: addr.ip_addrs().map(|addr| addr.to_string()).collect(),

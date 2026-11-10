@@ -13,7 +13,7 @@ async fn reports_status_of_the_bound_node() {
     let status = node.status();
 
     assert_eq!(status.protocol_version, PROTOCOL_VERSION);
-    assert_eq!(status.daemon_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(status.software_version, env!("CARGO_PKG_VERSION"));
     assert_eq!(status.node_id, node.id().to_string());
     assert!(
         status

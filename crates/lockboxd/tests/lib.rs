@@ -1,54 +1,15 @@
-//! Tests of the UNIX socket handling and the local API.
+//! Tests of the UNIX socket handling and the account keypair.
+
+mod common;
 
 use std::{
     os::unix::fs::{FileTypeExt, PermissionsExt},
-    path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-    time::Duration,
+    path::Path,
 };
 
-use lockbox_core::{Node, SecretKey};
-use lockbox_proto::{
-    api::{HEALTH_PATH, STATUS_PATH},
-    key::{self, PUBLIC_FILE, PUBLIC_PREFIX, SECRET_FILE},
-};
-use lockboxd::{AppState, bind, load_keypair, serve};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    sync::oneshot,
-};
-
-/// A throwaway directory which is removed when the test ends.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("lockboxd-test-{}-{id}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("create test dir");
-        Self(dir)
-    }
-
-    /// The directory itself.
-    fn path(&self) -> &Path {
-        &self.0
-    }
-
-    /// A path inside the directory, whose parents may not exist yet.
-    fn join(&self, name: &str) -> PathBuf {
-        self.0.join(name)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
+use common::{Daemon, TempDir};
+use lockbox_proto::key::{self, PUBLIC_FILE, PUBLIC_PREFIX, SECRET_FILE};
+use lockboxd::{bind, load_keypair};
 
 /// Make `dir` read-only and report on whether writes are refused.
 fn lock(dir: &Path) -> bool {
@@ -67,23 +28,6 @@ fn unlock(dir: &Path) {
     let mut permissions = std::fs::metadata(dir).expect("metadata").permissions();
     permissions.set_mode(0o700);
     std::fs::set_permissions(dir, permissions).expect("unlock directory");
-}
-
-/// One `GET` over the socket which is read and then subsequently closes the
-/// connection.
-async fn get(socket: &Path, path: &str) -> String {
-    let mut stream = tokio::net::UnixStream::connect(socket)
-        .await
-        .expect("connect to daemon");
-    let request = format!("GET {path} HTTP/1.1\r\nHost: lockboxd\r\nConnection: close\r\n\r\n");
-    stream
-        .write_all(request.as_bytes())
-        .await
-        .expect("write request");
-
-    let mut reply = String::new();
-    stream.read_to_string(&mut reply).await.expect("read reply");
-    reply
 }
 
 /// Permssion mode bits of `path`.
@@ -158,56 +102,13 @@ async fn refuses_a_socket_that_is_in_use() {
 }
 
 #[tokio::test]
-async fn serves_the_local_api() {
-    let dir = TempDir::new();
-    let socket = dir.join("daemon.sock");
-    let node = Arc::new(
-        Node::bind(SecretKey::generate())
-            .await
-            .expect("node must bind"),
-    );
-    let node_id = node.id().to_string();
-
-    let (stop, stopped) = oneshot::channel();
-    let served = socket.clone();
-    let task = tokio::spawn(async move {
-        serve(&served, AppState::new(node), async {
-            let _ = stopped.await;
-        })
-        .await
-    });
-
-    for _ in 0..200 {
-        if socket.try_exists().unwrap_or(false) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+async fn removes_its_socket_when_stopped() {
+    let daemon = Daemon::start().await;
     assert!(
-        socket.try_exists().expect("check socket"),
-        "daemon must bind its socket"
+        daemon.socket().try_exists().expect("check socket"),
+        "socket must exist while serving"
     );
-
-    let reply = get(&socket, HEALTH_PATH).await;
-    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
-    assert!(reply.contains(r#""ok":true"#), "{reply}");
-
-    let reply = get(&socket, STATUS_PATH).await;
-    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
-    assert!(
-        reply.contains(&format!(r#""node_id":"{node_id}""#)),
-        "{reply}"
-    );
-    assert!(reply.contains(r#""protocol_version":1"#), "{reply}");
-
-    stop.send(()).ok();
-    task.await
-        .expect("serve task must not panic")
-        .expect("serve must stop cleanly");
-    assert!(
-        !socket.try_exists().expect("check socket"),
-        "socket must be removed on shutdown"
-    );
+    daemon.stop().await;
 }
 
 #[test]

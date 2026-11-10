@@ -1615,6 +1615,8 @@ version = "0.1.0"
 dependencies = [
  "iroh",
  "lockbox-proto",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -1624,6 +1626,7 @@ version = "0.1.0"
 dependencies = [
  "bech32",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1660,6 +1663,9 @@ dependencies = [
  "axum",
  "lockbox-core",
  "lockbox-proto",
+ "lockbox-store",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

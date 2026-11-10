@@ -13,3 +13,6 @@ pub const CONFIG_DIR: &str = "lockbox";
 
 /// Directory under `$HOME` that holds the files when the config one is locked.
 pub const HOME_DIR: &str = ".lockbox";
+
+/// Name of the database which holds the user's local data.
+pub const LOCAL_DB: &str = "local.db";

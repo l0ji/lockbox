@@ -8,7 +8,7 @@ use lockbox_store::{
         Visibility,
         bookmarks::{self, NewBookmark, Scope},
         folders::{self, NewFolder},
-        settings, tags, topics,
+        tags, topics,
     },
 };
 
@@ -21,7 +21,7 @@ async fn saves_a_bookmark() {
         &db,
         NewBookmark {
             note: Some("read later".to_owned()),
-            ..NewBookmark::new("https://example.com/a", "Example")
+            ..NewBookmark::new("https://example.com/a", "Example", Visibility::Public)
         },
         100,
     )
@@ -52,14 +52,18 @@ async fn keeps_one_bookmark_per_url() {
 
     let first = bookmarks::create(
         &db,
-        NewBookmark::new("https://example.com/a", "Example"),
+        NewBookmark::new("https://example.com/a", "Example", Visibility::Public),
         100,
     )
     .await
     .expect("save bookmark");
-    let same = bookmarks::create(&db, NewBookmark::new("https://example.com/a", "Other"), 200)
-        .await
-        .expect("save the same link again");
+    let same = bookmarks::create(
+        &db,
+        NewBookmark::new("https://example.com/a", "Other", Visibility::Public),
+        200,
+    )
+    .await
+    .expect("save the same link again");
 
     assert_eq!(same.id, first.id);
     assert_eq!(same.title, "Example");
@@ -70,7 +74,11 @@ async fn keeps_one_bookmark_per_url() {
         &db,
         NewBookmark {
             canonical_url: "https://example.com/a".to_owned(),
-            ..NewBookmark::new("https://example.com/a?utm_source=feed", "Same")
+            ..NewBookmark::new(
+                "https://example.com/a?utm_source=feed",
+                "Same",
+                Visibility::Public,
+            )
         },
         300,
     )
@@ -399,30 +407,29 @@ fn bookmark_titles(page: &bookmarks::Page) -> Vec<&str> {
 }
 
 #[tokio::test]
-async fn takes_the_publish_default_from_the_settings() {
-    let temp = Temp::new("publish-default");
+async fn keeps_the_visibility_it_was_given() {
+    let temp = Temp::new("visibility");
     let db = open(&temp);
 
-    let mut changed = settings::read(&db).await.expect("read settings");
-    changed.publish_bookmarks = false;
-    settings::write(&db, &changed)
-        .await
-        .expect("write settings");
-
-    let private = bookmarks::create(&db, NewBookmark::new("https://a.example", "A"), 10)
-        .await
-        .expect("save bookmark");
+    let private = bookmarks::create(
+        &db,
+        NewBookmark::new("https://a.example", "A", Visibility::Private),
+        10,
+    )
+    .await
+    .expect("save bookmark");
     assert_eq!(private.visibility, Visibility::Private);
 
-    // Turning publishing back on changes what comes after, not what is here
-    changed.publish_bookmarks = true;
-    settings::write(&db, &changed)
-        .await
-        .expect("write settings");
-    let public = bookmarks::create(&db, NewBookmark::new("https://b.example", "B"), 20)
-        .await
-        .expect("save bookmark");
+    let public = bookmarks::create(
+        &db,
+        NewBookmark::new("https://b.example", "B", Visibility::Public),
+        20,
+    )
+    .await
+    .expect("save bookmark");
     assert_eq!(public.visibility, Visibility::Public);
+
+    // A later save does not change what is already there
     let stored = bookmarks::get(&db, private.id)
         .await
         .expect("read bookmark")

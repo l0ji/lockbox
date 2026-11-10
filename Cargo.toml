@@ -24,3 +24,4 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 lockbox-core = { path = "crates/lockbox-core" }
 lockbox-proto = { path = "crates/lockbox-proto" }
+lockbox-store = { path = "crates/lockbox-store" }

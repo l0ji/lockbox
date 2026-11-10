@@ -4,7 +4,7 @@ use crate::common::Temp;
 use lockbox_store::{
     Db,
     local::{
-        self,
+        self, Visibility,
         bookmarks::{self, NewBookmark},
         entries::{self, Filter, NewEntry},
         feeds::{self, NewFeed, Poll},
@@ -80,7 +80,7 @@ pub(super) async fn bookmark(db: &Db, url: &str, folder: Option<i64>, now: i64) 
         db,
         NewBookmark {
             folder_id: folder,
-            ..NewBookmark::new(url, url)
+            ..NewBookmark::new(url, url, Visibility::Public)
         },
         now,
     )

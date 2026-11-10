@@ -2,6 +2,8 @@
 //! creation of the socket's containing folder and file, and loads or generates
 //! the account keypair.
 
+pub mod api;
+
 use std::{
     fs, io,
     os::unix::fs::{DirBuilderExt, PermissionsExt},
@@ -9,49 +11,36 @@ use std::{
     sync::Arc,
 };
 
-use axum::{Json, Router, extract::State, routing::get};
 use lockbox_core::{
     BoxError, Node, SecretKey,
     key::{self, ReadError},
 };
-use lockbox_proto::{
-    api::{HEALTH_PATH, Health, STATUS_PATH, Status},
-    key as encoding,
-};
+use lockbox_proto::key as encoding;
+use lockbox_store::Db;
 use tokio::net::UnixListener;
 
 /// State shared by the daemon's routes.
 #[derive(Clone)]
 pub struct AppState {
     node: Arc<Node>,
+    db: Arc<Db>,
 }
 
 impl AppState {
-    /// Build state around a live node.
-    pub fn new(node: Arc<Node>) -> Self {
-        Self { node }
+    /// Build state around a live node and the local database.
+    pub fn new(node: Arc<Node>, db: Arc<Db>) -> Self {
+        Self { node, db }
     }
 
     /// The node behind the API.
     pub fn node(&self) -> &Arc<Node> {
         &self.node
     }
-}
 
-/// Build the router that serves the local API.
-pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route(HEALTH_PATH, get(health))
-        .route(STATUS_PATH, get(status))
-        .with_state(state)
-}
-
-async fn health() -> Json<Health> {
-    Json(Health { ok: true })
-}
-
-async fn status(State(state): State<AppState>) -> Json<Status> {
-    Json(state.node.status())
+    /// The local database behind the API.
+    pub fn db(&self) -> &Db {
+        &self.db
+    }
 }
 
 /// Serve the local API on the UNIX socket at `socket` until `shutdown` resolves.
@@ -66,7 +55,7 @@ pub async fn serve(
     let listener = bind(socket)?;
     tracing::info!(socket = %socket.display(), "daemon listening");
 
-    let served = axum::serve(listener, router(state))
+    let served = axum::serve(listener, api::router(state))
         .with_graceful_shutdown(shutdown)
         .await;
     let _ = fs::remove_file(socket);
