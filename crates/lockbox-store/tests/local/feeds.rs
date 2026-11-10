@@ -7,7 +7,7 @@ use lockbox_store::{
     local::{
         Visibility,
         entries::{self, Filter},
-        feeds::{self, Change, Kind, NewFeed, Poll, Source},
+        feeds::{self, Change, DEFAULT_TIMEOUT_SECONDS, Kind, NewFeed, Poll, Source},
     },
 };
 
@@ -33,6 +33,8 @@ async fn adds_a_feed() {
     assert_eq!(stored.title.as_deref(), Some("Example"));
     assert_eq!(stored.kind, Kind::Rss);
     assert_eq!(stored.poll_seconds, 3600);
+    assert_eq!(stored.timeout_seconds, DEFAULT_TIMEOUT_SECONDS);
+    assert_eq!(stored.user_agent, None);
     assert_eq!(stored.next_poll_at, None);
     assert_eq!(stored.fetched_at, None);
     assert_eq!(stored.visibility, Visibility::Private);
@@ -45,7 +47,9 @@ async fn adds_a_feed() {
         feeds::get(&db, stored.id).await.expect("read feed"),
         Some(stored.clone())
     );
-    assert_eq!(feeds::list(&db).await.expect("list feeds"), [stored]);
+    let page = feeds::list(&db, None, 10).await.expect("list feeds");
+    assert_eq!(page.items, [stored]);
+    assert_eq!(page.next, None);
     db.close().await.expect("close database");
 }
 
@@ -71,7 +75,14 @@ async fn adding_a_known_feed_returns_it() {
     assert_eq!(first.id, second.id);
     assert_eq!(second.title, None);
     assert_eq!(second.created_at, 100);
-    assert_eq!(feeds::list(&db).await.expect("list feeds").len(), 1);
+    assert_eq!(
+        feeds::list(&db, None, 10)
+            .await
+            .expect("list feeds")
+            .items
+            .len(),
+        1
+    );
     db.close().await.expect("close database");
 }
 
@@ -234,6 +245,8 @@ async fn changes_feed_settings() {
             title: Some("Example".to_owned()),
             kind: Some(Kind::Atom),
             poll_seconds: Some(600),
+            timeout_seconds: Some(5),
+            user_agent: Some(Some("lockbox-test/1".to_owned())),
             visibility: Some(Visibility::Public),
             disabled: Some(true),
         },
@@ -247,6 +260,8 @@ async fn changes_feed_settings() {
     assert_eq!(changed.title.as_deref(), Some("Example"));
     assert_eq!(changed.kind, Kind::Atom);
     assert_eq!(changed.poll_seconds, 600);
+    assert_eq!(changed.timeout_seconds, 5);
+    assert_eq!(changed.user_agent.as_deref(), Some("lockbox-test/1"));
     assert_eq!(changed.next_poll_at, Some(200 + 600), "the poll moves");
     assert_eq!(changed.visibility, Visibility::Public);
     assert!(changed.disabled);
@@ -295,11 +310,159 @@ async fn changes_feed_settings() {
     )
     .await
     .expect_err("below a minute");
+    assert!(matches!(error, Error::Invalid(_)), "{error}");
     assert!(error.to_string().contains("poll_seconds"), "{error}");
 
     let error = feeds::update(&db, 9_999, Change::default(), 400)
         .await
         .expect_err("no such feed");
     assert!(matches!(error, Error::NotFound), "{error}");
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn pages_the_feeds_by_title() {
+    let temp = Temp::new("page-feeds");
+    let db = open(&temp);
+
+    feed(&db, "https://example.com/c", 10).await;
+    let beta = feeds::add(
+        &db,
+        NewFeed {
+            title: Some("Beta".to_owned()),
+            ..NewFeed::new("https://example.com/b")
+        },
+        15,
+    )
+    .await
+    .expect("add feed");
+    feeds::add(
+        &db,
+        NewFeed {
+            title: Some("alpha".to_owned()),
+            ..NewFeed::new("https://example.com/a")
+        },
+        20,
+    )
+    .await
+    .expect("add feed");
+
+    // Titles order the list, and the URL stands in for a missing one
+    let page = feeds::list(&db, None, 2).await.expect("list feeds");
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|feed| feed.name().to_owned())
+            .collect::<Vec<_>>(),
+        ["alpha", "Beta"]
+    );
+    let cursor = page.next.expect("a page which is not the last");
+    assert_eq!(cursor.name, "Beta");
+    assert_eq!(cursor.id, beta.id);
+
+    let page = feeds::list(&db, Some(cursor), 2).await.expect("next page");
+    assert_eq!(page.items.len(), 1, "the page starts after the cursor");
+    assert_eq!(page.next, None);
+    assert_eq!(page.items[0].url, "https://example.com/c");
+
+    // A limit of zero answers nothing at all
+    let page = feeds::list(&db, None, 0).await.expect("empty page");
+    assert!(page.items.is_empty());
+    assert_eq!(page.next, None);
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn removes_a_feed_and_its_entries() {
+    let temp = Temp::new("remove-feed");
+    let db = open(&temp);
+    let removed = feed(&db, "https://example.com/feed", 10).await;
+    let kept = feed(&db, "https://example.com/other", 10).await;
+    poll(&db, removed, 100, vec![item("a", Some(90))]).await;
+    poll(&db, kept, 100, vec![item("b", Some(90))]).await;
+
+    feeds::delete(&db, removed).await.expect("remove feed");
+    assert_eq!(feeds::get(&db, removed).await.expect("read feed"), None);
+    assert_eq!(list(&db, Filter::default()).await, ["Entry b"]);
+
+    let error = feeds::delete(&db, removed)
+        .await
+        .expect_err("a feed which is gone must not be removed twice");
+    assert!(matches!(error, Error::NotFound), "{error}");
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn changes_how_a_feed_is_fetched() {
+    let temp = Temp::new("fetch-settings");
+    let db = open(&temp);
+    let id = feed(&db, "https://example.com/feed", 10).await;
+
+    let changed = feeds::update(
+        &db,
+        id,
+        Change {
+            timeout_seconds: Some(90),
+            user_agent: Some(Some("Penny's reader".to_owned())),
+            ..Change::default()
+        },
+        20,
+    )
+    .await
+    .expect("change the fetch settings");
+    assert_eq!(changed.timeout_seconds, 90);
+    assert_eq!(changed.user_agent.as_deref(), Some("Penny's reader"));
+
+    // An agent sent as a null inside returns the feed to the default one
+    let cleared = feeds::update(
+        &db,
+        id,
+        Change {
+            user_agent: Some(None),
+            ..Change::default()
+        },
+        30,
+    )
+    .await
+    .expect("clear the agent");
+    assert_eq!(cleared.user_agent, None);
+    assert_eq!(cleared.timeout_seconds, 90, "the timeout is left alone");
+
+    // The schema keeps the timeout at a second or more
+    let error = feeds::update(
+        &db,
+        id,
+        Change {
+            timeout_seconds: Some(0),
+            ..Change::default()
+        },
+        40,
+    )
+    .await
+    .expect_err("a timeout of zero is refused");
+    assert!(matches!(error, Error::Invalid(_)), "{error}");
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn the_schema_defaults_the_fetch_settings() {
+    let temp = Temp::new("fetch-defaults");
+    let db = open(&temp);
+
+    // A row which the code did not make still gets the defaults the store names
+    db.call(|connection| {
+        connection.execute(
+            "INSERT INTO feed (url, created_at, updated_at) VALUES ('https://example.com/feed', 10, 10)",
+            [],
+        )?;
+        Ok(())
+    })
+    .await
+    .expect("insert a feed");
+
+    let stored = feeds::get(&db, 1).await.expect("read feed").expect("feed");
+    assert_eq!(stored.timeout_seconds, DEFAULT_TIMEOUT_SECONDS);
+    assert_eq!(stored.user_agent, None);
+    assert_eq!(stored.poll_seconds, 3600);
     db.close().await.expect("close database");
 }

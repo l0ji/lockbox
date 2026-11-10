@@ -27,6 +27,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/local/0003_bookmarks.sql"),
     include_str!("../../migrations/local/0004_bookmark_search.sql"),
     include_str!("../../migrations/local/0005_preferences.sql"),
+    include_str!("../../migrations/local/0006_feed_fetch.sql"),
 ];
 
 /// Open the local database at `path`.

@@ -64,7 +64,9 @@ async fn the_cursor_survives_inserts_and_deletes() {
         vec![item("6", Some(45)), item("7", Some(5))],
     )
     .await;
-    remove(&db, "3").await;
+    entries::delete(&db, id(&db, "3").await)
+        .await
+        .expect("delete entry");
 
     let second = entries::list(&db, &Filter::default(), Some(cursor), 10)
         .await
@@ -348,19 +350,17 @@ async fn keeps_a_body_whole() {
 
     // Larger than a federation record may be; the reader keeps what it got
     let big = "x".repeat(3 * 1024 * 1024);
-    let mut entry = item("a", Some(10));
-    entry.body = Some(big.clone());
+    let mut wide = item("a", Some(10));
+    wide.body = Some(big.clone());
     let mut short = item("b", Some(20));
     short.body = Some("short".to_owned());
-    poll(&db, feed_id, 100, vec![entry, short]).await;
+    poll(&db, feed_id, 100, vec![wide, short]).await;
 
-    let (text, truncated) = body(&db, id(&db, "a").await).await;
-    assert_eq!(text.len(), big.len());
-    assert!(!truncated);
+    let wide = entry(&db, "a").await;
+    assert_eq!(wide.body.as_deref().map(str::len), Some(big.len()));
+    assert!(!wide.truncated);
 
-    let (text, truncated) = body(&db, id(&db, "b").await).await;
-    assert_eq!(text, "short");
-    assert!(!truncated);
+    assert_eq!(entry(&db, "b").await.body.as_deref(), Some("short"));
     db.close().await.expect("close database");
 }
 
@@ -416,17 +416,13 @@ async fn id(db: &Db, source: &str) -> i64 {
         .id
 }
 
-/// Body and truncation flag of one entry.
-async fn body(db: &Db, id: i64) -> (String, bool) {
-    db.call(move |connection| {
-        Ok(connection.query_row(
-            "SELECT body, truncated FROM entry WHERE id = ?1",
-            [id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?)
-    })
-    .await
-    .expect("read body")
+/// One entry with its body, read by source.
+async fn entry(db: &Db, source: &str) -> entries::Entry {
+    let id = id(db, source).await;
+    entries::get(db, id)
+        .await
+        .expect("read entry")
+        .expect("entry exists")
 }
 
 /// Whether `text` is a guid the store made.
@@ -435,15 +431,4 @@ fn is_guid(text: &str) -> bool {
         && text
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-/// Delete one entry by source, which no store query does yet.
-async fn remove(db: &Db, source: &str) {
-    let source = source.to_owned();
-    db.call(move |connection| {
-        connection.execute("DELETE FROM entry WHERE source = ?1", [&source])?;
-        Ok(())
-    })
-    .await
-    .expect("remove entry");
 }

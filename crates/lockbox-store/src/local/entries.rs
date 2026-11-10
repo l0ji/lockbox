@@ -1,6 +1,6 @@
 //! Entries a feed brought, and the reader's view of them.
 
-use rusqlite::{Connection, Row, params, params_from_iter, types::Value};
+use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, types::Value};
 
 use crate::{Db, Error};
 
@@ -27,6 +27,17 @@ pub struct EntrySummary {
     pub read_at: Option<i64>,
     pub starred_at: Option<i64>,
     pub archived_at: Option<i64>,
+}
+
+/// One entry with its metadata, body and whether it was truncated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    /// Everything a list shows.
+    pub summary: EntrySummary,
+    /// Body as the feed gave it.
+    pub body: Option<String>,
+    /// Whether the feed had already cut the body.
+    pub truncated: bool,
 }
 
 /// Which entries a list returns. An empty filter returns every entry.
@@ -90,6 +101,27 @@ pub async fn list(
     let filter = filter.clone();
     db.call(move |connection| page(connection, &filter, after, limit))
         .await
+}
+
+/// Read one entry.
+pub async fn get(db: &Db, id: i64) -> Result<Option<Entry>, Error> {
+    db.call(move |connection| {
+        let sql = format!("SELECT {COLUMNS}, body, truncated FROM entry WHERE id = ?1");
+        Ok(connection.query_row(&sql, [id], detail).optional()?)
+    })
+    .await
+}
+
+/// Delete one entry and everything referencing it.
+pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
+    db.call(move |connection| {
+        let changed = connection.execute("DELETE FROM entry WHERE id = ?1", [id])?;
+        if changed == 0 {
+            return Err(Error::NotFound);
+        }
+        Ok(())
+    })
+    .await
 }
 
 /// Set or clear when an entry was read.
@@ -256,6 +288,15 @@ fn page(
     };
 
     Ok(Page { items, next })
+}
+
+/// Read one detailed row.
+fn detail(row: &Row<'_>) -> rusqlite::Result<Entry> {
+    Ok(Entry {
+        summary: from_row(row)?,
+        body: row.get(13)?,
+        truncated: row.get(14)?,
+    })
 }
 
 /// Read one list row.

@@ -9,9 +9,12 @@ use super::{Visibility, entries, unknown};
 use crate::{Db, Error};
 
 /// Columns every feed query returns, in the order [`from_row`] reads them.
-const COLUMNS: &str = "id, url, site_url, title, kind, poll_seconds, next_poll_at, \
-     fetched_at, etag, last_modified, last_error, visibility, disabled, discovered_from, \
-     created_at, updated_at";
+const COLUMNS: &str = "id, url, site_url, title, kind, poll_seconds, timeout_seconds, user_agent, \
+     next_poll_at, fetched_at, etag, last_modified, last_error, visibility, disabled, \
+     discovered_from, created_at, updated_at";
+
+/// Seconds a fetch waits for the server when the user names no timeout.
+pub const DEFAULT_TIMEOUT_SECONDS: i64 = 20;
 
 /// One feed the reader follows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +25,8 @@ pub struct Feed {
     pub title: Option<String>,
     pub kind: Kind,
     pub poll_seconds: i64,
+    pub timeout_seconds: i64,
+    pub user_agent: Option<String>,
     pub next_poll_at: Option<i64>,
     pub fetched_at: Option<i64>,
     pub etag: Option<String>,
@@ -32,6 +37,13 @@ pub struct Feed {
     pub discovered_from: Source,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+impl Feed {
+    /// Where this feed sits in the list, which is its title or its URL.
+    pub fn name(&self) -> &str {
+        self.title.as_deref().unwrap_or(&self.url)
+    }
 }
 
 /// Feed formats the reader can parse.
@@ -125,6 +137,11 @@ pub struct NewFeed {
     pub kind: Kind,
     /// Seconds between polls.
     pub poll_seconds: i64,
+    /// Seconds the server has to answer a fetch.
+    pub timeout_seconds: i64,
+    /// The user agent that a fetch uses when getting data.
+    /// Defaults to "lockbox/{version}" when empty.
+    pub user_agent: Option<String>,
     /// How the feed was found.
     pub discovered_from: Source,
 }
@@ -138,6 +155,8 @@ impl NewFeed {
             title: None,
             kind: Kind::Rss,
             poll_seconds: 3600,
+            timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
+            user_agent: None,
             discovered_from: Source::User,
         }
     }
@@ -169,6 +188,11 @@ pub struct Change {
     pub kind: Option<Kind>,
     /// Seconds between polls.
     pub poll_seconds: Option<i64>,
+    /// Seconds the server has to answer a fetch.
+    pub timeout_seconds: Option<i64>,
+    /// Who a fetch says it is from. A `None` passed to this property
+    /// returns to the default.
+    pub user_agent: Option<Option<String>>,
     /// Whether the feed is published.
     pub visibility: Option<Visibility>,
     /// Whether polling is paused.
@@ -180,9 +204,9 @@ pub async fn add(db: &Db, feed: NewFeed, now: i64) -> Result<Feed, Error> {
     db.call(move |connection| {
         let transaction = connection.transaction()?;
         transaction.execute(
-            "INSERT INTO feed (url, site_url, title, kind, poll_seconds, discovered_from,
-                               created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+            "INSERT INTO feed (url, site_url, title, kind, poll_seconds, timeout_seconds,
+                               user_agent, discovered_from, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
              ON CONFLICT (url) DO NOTHING",
             params![
                 feed.url,
@@ -190,6 +214,8 @@ pub async fn add(db: &Db, feed: NewFeed, now: i64) -> Result<Feed, Error> {
                 feed.title,
                 feed.kind,
                 feed.poll_seconds,
+                feed.timeout_seconds,
+                feed.user_agent,
                 feed.discovered_from,
                 now,
             ],
@@ -212,14 +238,67 @@ pub async fn get(db: &Db, id: i64) -> Result<Option<Feed>, Error> {
     .await
 }
 
-/// Every feed, by title with the URL standing in for a missing one.
-pub async fn list(db: &Db) -> Result<Vec<Feed>, Error> {
-    db.call(|connection| {
-        let sql =
-            format!("SELECT {COLUMNS} FROM feed ORDER BY coalesce(title, url) COLLATE NOCASE, id");
+/// Position in the feed list which can be used to get the next page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cursor {
+    /// Title of the last feed on the page, or its URL when it has none.
+    pub name: String,
+    /// Row identifier of that feed.
+    pub id: i64,
+}
+
+/// A list of feeds used for pagination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Page {
+    pub items: Vec<Feed>,
+    /// Where the next page starts, absent at the end of the list.
+    pub next: Option<Cursor>,
+}
+
+/// List the feeds, by title with the URL standing in for a missing one.
+///
+/// `limit` is however many the caller wants; the store sets no maximum.
+pub async fn list(db: &Db, after: Option<Cursor>, limit: usize) -> Result<Page, Error> {
+    db.call(move |connection| {
+        if limit == 0 {
+            return Ok(Page {
+                items: Vec::new(),
+                next: None,
+            });
+        }
+        // How many feeds a client shows is its decision, so there is no cap here
+        let wanted = limit.min(i64::MAX as usize) as i64;
+
+        let mut sql = format!("SELECT {COLUMNS} FROM feed");
+        let mut args: Vec<Value> = Vec::new();
+        if let Some(cursor) = after {
+            sql.push_str(
+                " WHERE (coalesce(title, url) COLLATE NOCASE > ?1
+                   OR (coalesce(title, url) COLLATE NOCASE = ?1 AND id > ?2))",
+            );
+            args.push(Value::Text(cursor.name));
+            args.push(Value::Integer(cursor.id));
+        }
+        sql.push_str(" ORDER BY coalesce(title, url) COLLATE NOCASE, id LIMIT ?");
+        args.push(Value::Integer(wanted.saturating_add(1)));
+
         let mut statement = connection.prepare(&sql)?;
-        let feeds = statement.query_map([], from_row)?;
-        Ok(feeds.collect::<Result<Vec<_>, _>>()?)
+        let mut rows = statement.query(params_from_iter(args))?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(from_row(row)?);
+        }
+
+        let next = if items.len() > limit {
+            items.truncate(limit);
+            items.last().map(|last| Cursor {
+                name: last.name().to_owned(),
+                id: last.id,
+            })
+        } else {
+            None
+        };
+        Ok(Page { items, next })
     })
     .await
 }
@@ -303,6 +382,17 @@ pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Feed, 
             sets.push("visibility = ?");
             args.push(Value::Text(visibility.text().to_owned()));
         }
+        if let Some(seconds) = change.timeout_seconds {
+            sets.push("timeout_seconds = ?");
+            args.push(Value::Integer(seconds));
+        }
+        if let Some(agent) = change.user_agent {
+            sets.push("user_agent = ?");
+            args.push(match agent {
+                Some(agent) => Value::Text(agent),
+                None => Value::Null,
+            });
+        }
         if let Some(disabled) = change.disabled {
             sets.push("disabled = ?");
             args.push(Value::Integer(i64::from(disabled)));
@@ -325,6 +415,18 @@ pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Feed, 
     .await
 }
 
+/// Remove a feed and every entry which comes from it.
+pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
+    db.call(move |connection| {
+        let changed = connection.execute("DELETE FROM feed WHERE id = ?1", [id])?;
+        if changed == 0 {
+            return Err(Error::NotFound);
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// Read one feed row.
 fn from_row(row: &Row<'_>) -> rusqlite::Result<Feed> {
     Ok(Feed {
@@ -334,15 +436,17 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Feed> {
         title: row.get(3)?,
         kind: row.get(4)?,
         poll_seconds: row.get(5)?,
-        next_poll_at: row.get(6)?,
-        fetched_at: row.get(7)?,
-        etag: row.get(8)?,
-        last_modified: row.get(9)?,
-        last_error: row.get(10)?,
-        visibility: row.get(11)?,
-        disabled: row.get(12)?,
-        discovered_from: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
+        timeout_seconds: row.get(6)?,
+        user_agent: row.get(7)?,
+        next_poll_at: row.get(8)?,
+        fetched_at: row.get(9)?,
+        etag: row.get(10)?,
+        last_modified: row.get(11)?,
+        last_error: row.get(12)?,
+        visibility: row.get(13)?,
+        disabled: row.get(14)?,
+        discovered_from: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
     })
 }
