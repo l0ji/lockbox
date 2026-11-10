@@ -5,15 +5,22 @@
 
 use std::{
     io,
+    net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU32, Ordering},
     },
     time::Duration,
 };
 
-use lockbox_core::{Node, SecretKey};
+use axum::{
+    Router,
+    extract::{Request, State},
+    middleware::{self, Next},
+    response::Response,
+};
+use lockbox_core::{Node, SecretKey, fetch::Fetcher};
 use lockbox_store::{Db, local};
 use lockboxd::{AppState, serve};
 use serde::de::DeserializeOwned;
@@ -75,7 +82,8 @@ impl Daemon {
 
         let (stop, stopped) = oneshot::channel();
         let served = socket.clone();
-        let state = AppState::new(node, Arc::clone(&db));
+        let fetcher = Fetcher::new().expect("build the HTTP client");
+        let state = AppState::new(node, Arc::clone(&db), fetcher);
         let task = tokio::spawn(async move {
             serve(&served, state, async {
                 let _ = stopped.await;
@@ -172,4 +180,64 @@ pub fn json<T: DeserializeOwned>(body: &str) -> T {
         Ok(value) => value,
         Err(err) => panic!("cannot read {body}: {err}"),
     }
+}
+
+/// A stub HTTP server which serves feed documents on a loopback port.
+pub struct Site {
+    addr: SocketAddr,
+    task: JoinHandle<()>,
+    agents: Arc<Mutex<Vec<String>>>,
+}
+
+impl Site {
+    /// Serve the routes of `app` on a port which the system picks.
+    pub async fn start(app: Router) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the stub site");
+        let addr = listener.local_addr().expect("stub site address");
+
+        let agents = Arc::new(Mutex::new(Vec::new()));
+        let app = app.layer(middleware::from_fn_with_state(
+            Arc::clone(&agents),
+            record_agent,
+        ));
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Self { addr, task, agents }
+    }
+
+    /// Address of a path on the stub site.
+    pub fn url(&self, path: &str) -> String {
+        format!("http://{}{path}", self.addr)
+    }
+
+    /// The agent of every request which the stub site was asked, in order.
+    pub fn agents(&self) -> Vec<String> {
+        self.agents.lock().expect("agents").clone()
+    }
+}
+
+impl Drop for Site {
+    /// Stop answering, so that a poll of the feed it served fails.
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// Remember who asked for a document before serving it.
+async fn record_agent(
+    State(agents): State<Arc<Mutex<Vec<String>>>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let agent = request
+        .headers()
+        .get("user-agent")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    agents.lock().expect("agents").push(agent);
+    next.run(request).await
 }

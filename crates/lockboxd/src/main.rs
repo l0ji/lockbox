@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 
-use lockbox_core::{BoxError, Node, config};
+use lockbox_core::{BoxError, Node, config, fetch::Fetcher};
 use lockbox_proto::{config::LOCAL_DB, local};
 use lockbox_store::{Db, local::open};
 use lockboxd::{AppState, Keypair, load_keypair, serve};
@@ -81,7 +81,8 @@ async fn run(socket: PathBuf, user_keys: bool) -> Result<(), BoxError> {
         tracing::info!("node online");
     });
 
-    let state = AppState::new(Arc::clone(&node), db);
+    let fetcher = Fetcher::new().map_err(|err| format!("cannot build the HTTP client: {err}"))?;
+    let state = AppState::new(Arc::clone(&node), db, fetcher);
     let result = serve(&socket, state, shutdown_signal()).await;
     node.shutdown().await;
     result?;

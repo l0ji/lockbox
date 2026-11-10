@@ -3,6 +3,7 @@
 //! the account keypair.
 
 pub mod api;
+pub mod reader;
 
 use std::{
     fs, io,
@@ -13,6 +14,7 @@ use std::{
 
 use lockbox_core::{
     BoxError, Node, SecretKey,
+    fetch::Fetcher,
     key::{self, ReadError},
 };
 use lockbox_proto::key as encoding;
@@ -24,12 +26,13 @@ use tokio::net::UnixListener;
 pub struct AppState {
     node: Arc<Node>,
     db: Arc<Db>,
+    fetcher: Fetcher,
 }
 
 impl AppState {
-    /// Build state around a live node and the local database.
-    pub fn new(node: Arc<Node>, db: Arc<Db>) -> Self {
-        Self { node, db }
+    /// Build state around a live node, the local database and an HTTP client.
+    pub fn new(node: Arc<Node>, db: Arc<Db>, fetcher: Fetcher) -> Self {
+        Self { node, db, fetcher }
     }
 
     /// The node behind the API.
@@ -40,6 +43,11 @@ impl AppState {
     /// The local database behind the API.
     pub fn db(&self) -> &Db {
         &self.db
+    }
+
+    /// The client which fetches the documents the reader asks for.
+    pub fn fetcher(&self) -> &Fetcher {
+        &self.fetcher
     }
 }
 

@@ -1,6 +1,7 @@
 //! The daemon's routes, organized into a single module per API prefix.
 
 pub mod node;
+pub mod reader;
 
 use axum::{
     Json, Router,
@@ -16,7 +17,10 @@ use crate::AppState;
 
 /// Build the router that serves the local API.
 pub fn router(state: AppState) -> Router {
-    node::routes().fallback(not_found).with_state(state)
+    node::routes()
+        .merge(reader::routes())
+        .fallback(not_found)
+        .with_state(state)
 }
 
 /// Route to use when no module has claimed it.
@@ -49,6 +53,12 @@ impl Failure {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             error: ApiError::invalid(message),
         }
+    }
+
+    /// Report this failure with a status which its code does not imply.
+    pub fn with_status(mut self, status: StatusCode) -> Self {
+        self.status = status;
+        self
     }
 }
 
