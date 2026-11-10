@@ -69,7 +69,7 @@ pub fn decode_secret(text: &str) -> Result<[u8; KEY_LEN], KeyError> {
 }
 
 fn encode(hrp: Hrp, key: &[u8; KEY_LEN]) -> String {
-    // Skips the unnecessary `bech32::encode` checks 
+    // Skips the unnecessary `bech32::encode` checks
     key.iter()
         .copied()
         .bytes_to_fes()

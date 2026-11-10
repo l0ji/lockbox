@@ -3,7 +3,8 @@
 
 use std::{collections::HashMap, fmt, str::FromStr};
 
-use serde::{Deserialize, Deserializer, Serialize};
+use lockbox_proto::api::nullable;
+use serde::{Deserialize, Serialize};
 
 /// Route that reads and changes the settings.
 pub const PATH: &str = "/api/node/settings";
@@ -264,15 +265,6 @@ fn pairs(settings: &Settings) -> [(&'static str, String); 14] {
             settings.entry_retention_days.to_string(),
         ),
     ]
-}
-
-/// Discover whether a missing field was sent as a `null` or is empty.
-fn nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// Read one setting, returning a default if it was never stored.

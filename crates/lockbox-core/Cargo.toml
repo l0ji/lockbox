@@ -4,9 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+feed-rs.workspace = true
 iroh.workspace = true
 lockbox-proto.workspace = true
+reqwest.workspace = true
 serde.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
