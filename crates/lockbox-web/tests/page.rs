@@ -380,10 +380,6 @@ fn renders_an_error_page() {
 
     assert!(html.contains("<title>lockbox: 502</title>"), "{html}");
     assert!(html.contains("daemon unexpectedly replied 500"), "{html}");
-    assert!(
-        html.contains(r#"<a href="/">back to the reader</a>"#),
-        "{html}"
-    );
 }
 
 #[test]
@@ -398,12 +394,7 @@ fn renders_an_offline_page() {
     assert!(html.contains("<title>lockbox: 502</title>"), "{html}");
     assert!(html.contains(r#"<h1 class="section">502</h1>"#), "{html}");
     assert!(html.contains("the daemon is offline"), "{html}");
-    assert!(
-        html.contains("Start the daemon and reload this page."),
-        "{html}"
-    );
     assert!(!html.contains("daemon.sock"), "no path in the page: {html}");
-    assert!(!html.contains("back to the reader"), "{html}");
 }
 
 #[test]

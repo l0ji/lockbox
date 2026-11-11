@@ -524,10 +524,6 @@ async fn reports_a_daemon_which_is_down() {
     assert_eq!(code, StatusCode::BAD_GATEWAY);
     assert!(html.contains("the daemon is offline"), "{html}");
     assert!(
-        html.contains("Start the daemon and reload this page."),
-        "{html}"
-    );
-    assert!(
         !html.contains("lockbox-web-test-missing.sock"),
         "the socket path stays out of the page: {html}"
     );

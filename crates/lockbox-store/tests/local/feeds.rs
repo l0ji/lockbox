@@ -230,6 +230,42 @@ async fn a_refresh_of_a_missing_feed_fails() {
 }
 
 #[tokio::test]
+async fn lists_the_feeds_that_are_due() {
+    let temp = Temp::new("due-feeds");
+    let db = open(&temp);
+
+    let never = feed(&db, "https://example.com/never.xml", 100).await;
+    let overdue = feed(&db, "https://example.com/overdue.xml", 100).await;
+    refresh(&db, overdue, 200, vec![]).await;
+    let later = feed(&db, "https://example.com/later.xml", 100).await;
+    refresh(&db, later, 4_000, vec![]).await;
+    let paused = feed(&db, "https://example.com/paused.xml", 100).await;
+    refresh(&db, paused, 100, vec![]).await;
+    feeds::update(
+        &db,
+        paused,
+        Change {
+            disabled: Some(true),
+            ..Change::default()
+        },
+        100,
+    )
+    .await
+    .expect("pause feed");
+
+    // 4000 is past the overdue feed's 3800 and short of the later one's 7600
+    let due = feeds::due(&db, 4_000, 10).await.expect("list due feeds");
+    let ids: Vec<i64> = due.iter().map(|feed| feed.id).collect();
+    assert_eq!(ids, [never, overdue]);
+
+    let due = feeds::due(&db, 4_000, 1).await.expect("list one due feed");
+    assert_eq!(due.len(), 1, "the batch size bounds the pass");
+    assert_eq!(due[0].id, never);
+
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
 async fn changes_feed_settings() {
     let temp = Temp::new("settings");
     let db = open(&temp);

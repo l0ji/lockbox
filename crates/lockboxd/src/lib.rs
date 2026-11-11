@@ -4,6 +4,7 @@
 
 pub mod api;
 pub mod reader;
+pub mod refresh;
 
 use std::{
     fs, io,

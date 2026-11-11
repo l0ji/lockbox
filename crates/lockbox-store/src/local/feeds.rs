@@ -236,6 +236,26 @@ pub async fn get(db: &Db, id: i64) -> Result<Option<Feed>, Error> {
     .await
 }
 
+/// The feeds whose next refresh is due, oldest first.
+///
+/// A feed which was never refreshed has no time to compare, so it counts as due.
+pub async fn due(db: &Db, now: i64, limit: usize) -> Result<Vec<Feed>, Error> {
+    db.call(move |connection| {
+        let mut statement = connection.prepare(&format!(
+            "SELECT {COLUMNS} FROM feed
+             WHERE disabled = 0 AND (next_refresh_at IS NULL OR next_refresh_at <= ?1)
+             ORDER BY next_refresh_at, id LIMIT ?2"
+        ))?;
+        let mut items = Vec::new();
+        let mut rows = statement.query(params![now, limit.min(i64::MAX as usize) as i64])?;
+        while let Some(row) = rows.next()? {
+            items.push(from_row(row)?);
+        }
+        Ok(items)
+    })
+    .await
+}
+
 /// Position in the feed list from which the next page starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cursor {

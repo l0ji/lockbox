@@ -12,7 +12,7 @@ use std::{
 use lockbox_core::{BoxError, Node, config, fetch::Fetcher};
 use lockbox_proto::{config::LOCAL_DB, local};
 use lockbox_store::{Db, local::open};
-use lockboxd::{AppState, Keypair, load_keypair, serve};
+use lockboxd::{AppState, Keypair, load_keypair, refresh, serve};
 
 const USAGE: &str = "\
 Usage: lockboxd [--socket <path>] [--user-keys]
@@ -82,6 +82,12 @@ async fn run(socket: PathBuf, user_keys: bool) -> Result<(), BoxError> {
     });
 
     let fetcher = Fetcher::new().map_err(|err| format!("cannot build the HTTP client: {err}"))?;
+    tokio::spawn(refresh::run(
+        Arc::clone(&db),
+        fetcher.clone(),
+        refresh::TICK,
+    ));
+
     let state = AppState::new(Arc::clone(&node), db, fetcher);
     let result = serve(&socket, state, shutdown_signal()).await;
     node.shutdown().await;
