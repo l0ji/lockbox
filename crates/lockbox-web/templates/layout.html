@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}lockbox{% endblock %}</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <div class="page">
+        <header class="masthead">
+            <a class="wordmark" href="/">lockbox</a>
+            <nav class="tabs">
+                <a class="tab{% if section == "reader" %} on{% endif %}" href="/">reader</a>
+                <a class="tab{% if section == "feeds" %} on{% endif %}" href="/feeds">feeds</a>
+                <a class="tab{% if section == "node" %} on{% endif %}" href="/node">node</a>
+            </nav>
+        </header>
+
+        {%- block content %}{% endblock %}
+    </div>
+</body>
+
+</html>

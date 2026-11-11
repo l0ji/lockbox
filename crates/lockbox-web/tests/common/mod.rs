@@ -11,7 +11,10 @@ use std::{
 use axum::{Json, Router, routing::get};
 use lockbox_proto::{
     PROTOCOL_VERSION,
-    api::node::{STATUS_PATH, Status},
+    api::{
+        node::{STATUS_PATH, Status},
+        reader::{Entry, EntrySummary, Feed, Kind, Visibility},
+    },
 };
 
 /// A sample status reply from the daemon.
@@ -19,6 +22,7 @@ pub fn sample_status() -> Status {
     Status {
         protocol_version: PROTOCOL_VERSION,
         software_version: "0.1.0".to_owned(),
+        public_key: "lbox1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0ssqs23x".to_owned(),
         node_id: "test-node".to_owned(),
         relay_urls: vec!["https://relay.example./".to_owned()],
         direct_addrs: vec!["127.0.0.1:5555".to_owned()],
@@ -71,5 +75,54 @@ impl Stub {
 impl Drop for Stub {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// A feed which a stub daemon serves.
+pub fn sample_feed() -> Feed {
+    Feed {
+        id: 1,
+        url: "https://example.com/feed.xml".to_owned(),
+        site_url: Some("https://example.com/".to_owned()),
+        title: Some("Example blog".to_owned()),
+        kind: Kind::Rss,
+        poll_seconds: 3600,
+        timeout_seconds: 20,
+        user_agent: None,
+        next_poll_at: Some(1_700_003_600),
+        fetched_at: Some(1_700_000_000),
+        last_error: None,
+        visibility: Visibility::Private,
+        disabled: false,
+        created_at: 1_700_000_000,
+        updated_at: 1_700_000_000,
+    }
+}
+
+/// One entry which a stub daemon serves.
+pub fn sample_entry() -> EntrySummary {
+    EntrySummary {
+        id: 1,
+        guid: "abc".to_owned(),
+        feed_id: 1,
+        title: "First post".to_owned(),
+        url: Some("https://example.com/first".to_owned()),
+        author: Some("Penny".to_owned()),
+        summary: Some("Short summary".to_owned()),
+        published_at: Some(1_699_999_000),
+        sort_at: 1_700_000_000,
+        fetched_at: 1_700_000_000,
+        read_at: None,
+        starred_at: None,
+        archived_at: None,
+    }
+}
+
+/// The same entry with the body which only the detail route carries.
+pub fn sample_body() -> Entry {
+    Entry {
+        summary: sample_entry(),
+        body: Some("<p>words</p>".to_owned()),
+        truncated: false,
     }
 }

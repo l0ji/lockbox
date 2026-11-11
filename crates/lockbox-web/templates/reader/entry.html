@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: {{ title }}{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section"><a href="{{ back }}">reader</a></h1>
+</div>
+
+<article class="entry">
+    <h2 class="entry-title">{{ title }}</h2>
+    <p class="meta">{{ feed }} | {{ when }}{% if has_author %} | {{ author }}{% endif %}</p>
+
+    {%- if has_url %}
+    <p class="meta"><a href="{{ link }}" rel="noreferrer">{{ link }}</a></p>
+    {%- endif %}
+
+    {%- if has_body %}
+    <div class="body">{{ body }}</div>
+    {%- else if has_excerpt %}
+    <div class="body">{{ excerpt }}</div>
+    {%- endif %}
+</article>
+{% endblock %}

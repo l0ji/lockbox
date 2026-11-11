@@ -166,6 +166,16 @@ async fn reports_the_node() {
     assert_eq!(status.protocol_version, PROTOCOL_VERSION);
     assert_eq!(status.software_version, env!("CARGO_PKG_VERSION"));
     assert!(!status.node_id.is_empty());
+    // The encoded key and the hex name the same identity
+    assert!(
+        status.public_key.starts_with("lbox1"),
+        "{}",
+        status.public_key
+    );
+    assert_eq!(
+        lockbox_proto::key::decode_public(&status.public_key).expect("encoded public key"),
+        unhex(&status.node_id),
+    );
 
     let (_, again) = request(daemon.socket(), "GET", node::STATUS_PATH, None).await;
     let again: Status = json(&again);
@@ -723,4 +733,15 @@ async fn refuses_a_timeout_outside_the_schema() {
         let error: ApiError = json(&body);
         assert_eq!(error.code, Code::Invalid, "{timeout}");
     }
+}
+
+/// Bytes which a hex string names.
+fn unhex(text: &str) -> [u8; 32] {
+    assert_eq!(text.len(), 64, "{text}");
+    let mut bytes = [0u8; 32];
+    for (index, pair) in text.as_bytes().chunks(2).enumerate() {
+        let pair = std::str::from_utf8(pair).expect("hex pair");
+        bytes[index] = u8::from_str_radix(pair, 16).expect("hex pair");
+    }
+    bytes
 }

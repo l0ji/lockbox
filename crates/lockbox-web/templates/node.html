@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: node{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section">node</h1>
+    <span class="status" data-state="{{ state }}"><span class="dot"></span><span>{{ state_text }}</span></span>
+</div>
+
+<table class="status">
+    <tr>
+        <th>Public key</th>
+        <td>{{ public_key }}</td>
+    </tr>
+    <tr>
+        <th>Endpoint ID</th>
+        <td>{{ node_id }}</td>
+    </tr>
+    <tr>
+        <th>Protocol version</th>
+        <td>{{ protocol }}</td>
+    </tr>
+    <tr>
+        <th>Node version</th>
+        <td>{{ software }}</td>
+    </tr>
+    <tr>
+        <th>Uptime</th>
+        <td>{{ uptime }}</td>
+    </tr>
+</table>
+
+<h2 class="rail-section">Relays</h2>
+<ul class="plain">
+    {%- if has_relays %}
+    {%- for relay in relays %}
+    <li>{{ relay }}</li>
+    {%- endfor %}
+    {%- else %}
+    <li class="empty">none</li>
+    {%- endif %}
+</ul>
+
+<h2 class="rail-section">Direct addresses</h2>
+<ul class="plain">
+    {%- if has_addrs %}
+    {%- for addr in addrs %}
+    <li>{{ addr }}</li>
+    {%- endfor %}
+    {%- else %}
+    <li class="empty">none</li>
+    {%- endif %}
+</ul>
+
+<p class="notice">{{ error }}</p>
+{% endblock %}

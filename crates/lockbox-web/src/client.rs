@@ -7,17 +7,17 @@ use std::{
 };
 
 use http_body_util::{BodyExt, Full, Limited};
-use hyper::{Request, body::Bytes, header};
+use hyper::{Method, Request, body::Bytes, header};
 use hyper_util::client::legacy;
 use hyperlocal::{UnixClientExt, UnixConnector};
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::time::timeout;
 
 /// How long a single request may take before the client gives up.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Maximum reply size accepted from the daemon, in bytes.
-pub const MAX_BODY: usize = 4 * 1024 * 1024;
+pub const MAX_REPLY: usize = 4 * 1024 * 1024;
 
 /// A parsed HTTP reply.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +33,17 @@ impl Response {
     pub fn is_success(&self) -> bool {
         (200..300).contains(&self.status)
     }
+
+    /// Read the body as `T`, reporting a reply which is not a success.
+    pub fn json<T: DeserializeOwned>(&self) -> Result<T, ClientError> {
+        if !self.is_success() {
+            return Err(ClientError::Status {
+                status: self.status,
+                body: String::from_utf8_lossy(&self.body).into_owned(),
+            });
+        }
+        serde_json::from_slice(&self.body).map_err(ClientError::Parse)
+    }
 }
 
 /// A client error that can occur when interacting with the daemon.
@@ -46,9 +57,11 @@ pub enum ClientError {
     Request(hyper::http::Error),
     /// The daemon did not answer in time.
     Timeout,
+    /// The daemon's location is empty, presumably because it is offline
+    Offline,
     /// The daemon answered with a non-2xx status.
     Status { status: u16, body: String },
-    /// The reply body was not valid JSON.
+    /// The request or the reply was not valid JSON.
     Parse(serde_json::Error),
 }
 
@@ -59,6 +72,7 @@ impl fmt::Display for ClientError {
             Self::Body(err) => write!(f, "cannot read daemon reply: {err}"),
             Self::Request(err) => write!(f, "cannot build daemon request: {err}"),
             Self::Timeout => write!(f, "daemon timed out"),
+            Self::Offline => write!(f, "the daemon is offline"),
             Self::Status { status, body } => {
                 let body = body.trim();
                 if body.is_empty() {
@@ -90,7 +104,7 @@ impl std::error::Error for ClientError {
             Self::Body(err) => Some(err.as_ref()),
             Self::Request(err) => Some(err),
             Self::Parse(err) => Some(err),
-            Self::Timeout | Self::Status { .. } => None,
+            Self::Timeout | Self::Status { .. } | Self::Offline => None,
         }
     }
 }
@@ -118,32 +132,74 @@ impl DaemonClient {
 
     /// `GET path`, returning the raw reply.
     pub async fn get(&self, path: &str) -> Result<Response, ClientError> {
-        match timeout(REQUEST_TIMEOUT, self.send(path)).await {
-            Ok(reply) => reply,
-            Err(_) => Err(ClientError::Timeout),
-        }
+        self.request(Method::GET, path, None).await
     }
 
     /// `GET path`, parsed from JSON of type `T`.
     pub async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, ClientError> {
-        let response = self.get(path).await?;
-        if !response.is_success() {
-            return Err(ClientError::Status {
-                status: response.status,
-                body: String::from_utf8_lossy(&response.body).into_owned(),
-            });
-        }
-        serde_json::from_slice(&response.body).map_err(ClientError::Parse)
+        self.get(path).await?.json()
     }
 
-    async fn send(&self, path: &str) -> Result<Response, ClientError> {
+    /// `POST path` with a JSON body, returning the raw reply.
+    pub async fn post<T: Serialize>(&self, path: &str, body: &T) -> Result<Response, ClientError> {
+        let body = serde_json::to_string(body).map_err(ClientError::Parse)?;
+        self.request(Method::POST, path, Some(body)).await
+    }
+
+    /// `PATCH path` with a JSON body, returning the raw reply.
+    pub async fn patch<T: Serialize>(&self, path: &str, body: &T) -> Result<Response, ClientError> {
+        let body = serde_json::to_string(body).map_err(ClientError::Parse)?;
+        self.request(Method::PATCH, path, Some(body)).await
+    }
+
+    /// `DELETE path`, returning the raw reply.
+    pub async fn delete(&self, path: &str) -> Result<Response, ClientError> {
+        self.request(Method::DELETE, path, None).await
+    }
+
+    /// Send one request, giving up when the daemon does not answer in time.
+    async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<String>,
+    ) -> Result<Response, ClientError> {
+        match timeout(REQUEST_TIMEOUT, self.send(method, path, body)).await {
+            Ok(Ok(reply)) => Ok(reply),
+            Ok(Err(error)) => Err(self.offline(error)),
+            Err(_) => Err(ClientError::Timeout),
+        }
+    }
+
+    /// Name a failure to connect for what it is when the socket is gone.
+    fn offline(&self, error: ClientError) -> ClientError {
+        match error {
+            ClientError::Connect(_) if !self.socket.exists() => ClientError::Offline,
+            other => other,
+        }
+    }
+
+    async fn send(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<String>,
+    ) -> Result<Response, ClientError> {
         let uri: hyper::Uri = hyperlocal::Uri::new(&self.socket, path).into();
-        let request = Request::builder()
+        let mut request = Request::builder()
+            .method(method)
             .uri(uri)
             .header(header::HOST, "lockboxd")
-            .header(header::ACCEPT, "application/json")
-            .body(Full::new(Bytes::new()))
-            .map_err(ClientError::Request)?;
+            .header(header::ACCEPT, "application/json");
+
+        let body = match body {
+            Some(body) => {
+                request = request.header(header::CONTENT_TYPE, "application/json");
+                Full::new(Bytes::from(body))
+            }
+            None => Full::new(Bytes::new()),
+        };
+        let request = request.body(body).map_err(ClientError::Request)?;
 
         let response = self
             .client
@@ -151,7 +207,7 @@ impl DaemonClient {
             .await
             .map_err(ClientError::Connect)?;
         let status = response.status().as_u16();
-        let body = Limited::new(response.into_body(), MAX_BODY)
+        let body = Limited::new(response.into_body(), MAX_REPLY)
             .collect()
             .await
             .map_err(ClientError::Body)?

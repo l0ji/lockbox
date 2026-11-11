@@ -1,16 +1,22 @@
-//! The single page the web client serves.
+//! The pages served by the web client without needing data from the daemon.
 
 use askama::Template;
 use lockbox_proto::api::node::Status;
 
+/// Page which reports on the daemon itself.
+pub const NODE_PAGE: &str = "/node";
+
 /// Template context for the status page.
 #[derive(Template)]
-#[template(path = "index.html")]
+#[template(path = "node.html")]
 pub struct Page {
+    /// Section of the site which the navbar marks.
+    section: &'static str,
     /// Either `live` or `down`, which styles the status dot.
     state: &'static str,
     /// Text next to the status dot.
     state_text: &'static str,
+    public_key: String,
     node_id: String,
     protocol: String,
     software: String,
@@ -27,8 +33,10 @@ impl Page {
     /// Page for a daemon that answered.
     pub fn live(status: Status) -> Self {
         Self {
+            section: "node",
             state: "live",
             state_text: "live",
+            public_key: status.public_key,
             node_id: status.node_id,
             protocol: status.protocol_version.to_string(),
             software: status.software_version,
@@ -44,8 +52,10 @@ impl Page {
     /// Page for a daemon that did not answer.
     pub fn down(error: impl Into<String>) -> Self {
         Self {
+            section: "node",
             state: "down",
-            state_text: "daemon unreachable",
+            state_text: "daemon offline",
+            public_key: "-".to_owned(),
             node_id: "-".to_owned(),
             protocol: "-".to_owned(),
             software: "-".to_owned(),
@@ -57,6 +67,20 @@ impl Page {
             error: error.into(),
         }
     }
+}
+
+/// Template context for a page which failed.
+#[derive(Template)]
+#[template(path = "error.html")]
+pub struct ErrorPage {
+    /// Section of the site which the navbar marks.
+    pub section: &'static str,
+    /// Status which the browser sees.
+    pub status: u16,
+    /// Reason to show on the page.
+    pub message: String,
+    /// Whether the daemon is not running at all.
+    pub offline: bool,
 }
 
 /// Uptime in seconds, in the largest two units that fit.

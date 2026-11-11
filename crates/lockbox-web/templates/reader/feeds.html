@@ -1,0 +1,65 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: feeds{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section">feeds</h1>
+    <form class="add" method="post" action="/feeds">
+        <input type="text" name="url" size="34" placeholder="https://example.com/feed.xml" required>
+        <button type="submit">add feed</button>
+    </form>
+</div>
+
+{%- if has_error %}
+<p class="notice">{{ error }}</p>
+{%- endif %}
+
+<table class="feeds">
+    <thead>
+        <tr>
+            <th>feed</th>
+            <th>every</th>
+            <th>timeout</th>
+            <th>user agent</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {%- for feed in feeds %}
+        <tr>
+            <td class="name">
+                <a href="{{ feed.url }}" rel="noreferrer">{{ feed.title }}</a>
+                <span class="meta">{{ feed.kind }} | {{ feed.url }} | polled {{ feed.polled }}{% if feed.paused %} |
+                    paused{% endif %}</span>
+                {%- if feed.has_error %}
+                <span class="notice">{{ feed.error }}</span>
+                {%- endif %}
+            </td>
+            <td>{{ feed.interval }}</td>
+            <td>
+                <form class="fetch" method="post" action="/feeds/{{ feed.id }}/settings">
+                    <input type="number" name="timeout_seconds" value="{{ feed.timeout }}" required
+                        aria-label="timeout in seconds">
+                    <input type="text" name="user_agent" value="{{ feed.agent }}" placeholder="{{ agent }}"
+                        size="18" aria-label="user agent">
+                    <button type="submit">save</button>
+                </form>
+            </td>
+            <td>
+                <form method="post" action="/feeds/{{ feed.id }}/poll">
+                    <button type="submit">poll</button>
+                </form>
+                <form method="post" action="/feeds/{{ feed.id }}/delete">
+                    <button type="submit">remove</button>
+                </form>
+            </td>
+        </tr>
+        {%- else %}
+        <tr>
+            <td class="empty" colspan="5">no feeds yet</td>
+        </tr>
+        {%- endfor %}
+    </tbody>
+</table>
+{% endblock %}

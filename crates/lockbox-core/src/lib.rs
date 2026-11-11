@@ -19,7 +19,7 @@ use std::time::Instant;
 
 use iroh::{Endpoint, endpoint::presets};
 pub use iroh::{EndpointAddr, EndpointId, SecretKey};
-use lockbox_proto::{PROTOCOL_VERSION, api::node::Status};
+use lockbox_proto::{PROTOCOL_VERSION, api::node::Status, key::encode_public};
 
 /// Error type used across the node's code.
 ///
@@ -82,6 +82,7 @@ impl Node {
         Status {
             protocol_version: PROTOCOL_VERSION,
             software_version: env!("CARGO_PKG_VERSION").to_owned(),
+            public_key: encode_public(addr.id.as_bytes()),
             node_id: addr.id.to_string(),
             relay_urls: addr.relay_urls().map(|url| url.to_string()).collect(),
             direct_addrs: addr.ip_addrs().map(|addr| addr.to_string()).collect(),

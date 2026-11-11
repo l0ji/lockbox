@@ -1,0 +1,11 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: {{ status }}{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section">{{ status }}</h1>
+</div>
+
+<p class="notice">{{ message }}</p>
+{% endblock %}

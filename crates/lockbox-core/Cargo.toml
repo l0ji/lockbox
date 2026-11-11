@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 feed-rs.workspace = true
+html-escape.workspace = true
 iroh.workspace = true
 lockbox-proto.workspace = true
 reqwest.workspace = true

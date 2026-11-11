@@ -81,6 +81,7 @@ async fn reports_a_status_which_is_not_a_document() {
         status: 404,
         body: "gone".to_owned(),
         etag: None,
+        delay: None,
     })
     .await;
     let fetcher = Fetcher::new().expect("build the client");
@@ -117,7 +118,7 @@ async fn refuses_an_address_which_is_not_a_url() {
 
 #[tokio::test]
 async fn gives_up_at_the_deadline_it_was_given() {
-    let site = Site::start(Reply::document(DOCUMENT)).await;
+    let site = Site::start(Reply::document(DOCUMENT).after(Duration::from_secs(5))).await;
     let fetcher = Fetcher::new().expect("build the client");
 
     let error = fetcher
@@ -125,11 +126,11 @@ async fn gives_up_at_the_deadline_it_was_given() {
             url: &site.url("/feed.xml"),
             etag: None,
             last_modified: None,
-            timeout: Duration::from_millis(1),
+            timeout: Duration::from_millis(50),
             user_agent: "lockbox-test/1",
         })
         .await
-        .expect_err("a deadline of a millisecond must pass");
+        .expect_err("a server which takes five seconds must miss 50ms");
 
     assert!(error.to_string().contains("timed out"), "{error}");
 }

@@ -1,0 +1,69 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: reader{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section">reader</h1>
+    <form class="search" method="get" action="/">
+        <input type="search" name="query" value="{{ search }}" size="24">
+        <button type="submit">search</button>
+    </form>
+</div>
+
+<div class="columns">
+    <div class="stream">
+        <p class="filters">
+            {%- for filter in filters %}
+            <a class="filter{% if filter.selected %} on{% endif %}" href="{{ filter.href }}">{{ filter.label }}</a>
+            {%- endfor %}
+        </p>
+
+        <ul class="items">
+            {%- for row in rows %}
+            <li class="item{% if row.read %} read{% endif %}">
+                <div class="stamp{% if row.starred %} starred{% endif %}">{{ row.stamp }}</div>
+                <div class="item-body">
+                    <a class="title" href="{{ row.link }}" rel="noreferrer">{{ row.title }}</a>
+                    {%- if row.has_excerpt %}
+                    <p class="summary">{{ row.excerpt }}</p>
+                    {%- endif %}
+                    <span class="meta">
+                        <span class="feed">{{ row.feed }}</span>
+                        <form class="act read{% if row.read %} undo{% endif %}" method="post"
+                            action="/entry/{{ row.id }}/read">
+                            <input type="hidden" name="on" value="{{ row.read_next }}">
+                            <input type="hidden" name="back" value="{{ back }}">
+                            <button type="submit">{% if row.read %}unread{% else %}read{% endif %}</button>
+                        </form>
+                        <form class="act star{% if row.starred %} undo{% endif %}" method="post"
+                            action="/entry/{{ row.id }}/star">
+                            <input type="hidden" name="on" value="{{ row.starred_next }}">
+                            <input type="hidden" name="back" value="{{ back }}">
+                            <button type="submit">{% if row.starred %}unstar{% else %}star{% endif %}</button>
+                        </form>
+                    </span>
+                </div>
+            </li>
+            {%- else %}
+            <li class="empty">nothing to read yet</li>
+            {%- endfor %}
+        </ul>
+
+        {%- if has_next %}
+        <p class="more"><a href="{{ next }}">older entries</a></p>
+        {%- endif %}
+    </div>
+
+    <aside class="rail">
+        <h2 class="rail-section">feeds</h2>
+        <ul class="feedlinks">
+            {%- for feed in feeds %}
+            <li{% if feed.selected %} class="on"{% endif %}><a href="{{ feed.href }}">{{ feed.title }}</a></li>
+            {%- else %}
+            <li class="empty">none yet</li>
+            {%- endfor %}
+        </ul>
+    </aside>
+</div>
+{% endblock %}

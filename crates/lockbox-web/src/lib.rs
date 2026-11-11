@@ -2,6 +2,7 @@
 
 mod client;
 mod page;
+mod reader;
 
 use std::{path::Path, sync::Arc};
 
@@ -19,7 +20,10 @@ use lockbox_proto::api::{
 };
 
 pub use client::{ClientError, DaemonClient, Response};
-pub use page::Page;
+pub use page::{ErrorPage, NODE_PAGE, Page};
+pub use reader::{
+    EntriesPage, EntryPage, FeedLink, FeedRow, FeedsPage, FilterLink, Row, TEXT_LIMIT, truncate,
+};
 
 /// Shared state for the web client's routes.
 #[derive(Clone)]
@@ -51,8 +55,9 @@ mod assets {
 /// Paths the routes do not claim are treated as files from `static/`.
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .route("/", get(index))
+        .route(NODE_PAGE, get(index))
         .route(STATUS_PATH, get(status))
+        .merge(reader::routes())
         .with_state(state)
         .fallback(asset)
 }

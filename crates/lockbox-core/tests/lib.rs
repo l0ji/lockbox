@@ -3,7 +3,7 @@
 use std::{net::SocketAddr, time::Duration};
 
 use lockbox_core::{Node, SecretKey};
-use lockbox_proto::PROTOCOL_VERSION;
+use lockbox_proto::{PROTOCOL_VERSION, key};
 
 #[tokio::test]
 async fn reports_status_of_the_bound_node() {
@@ -15,6 +15,11 @@ async fn reports_status_of_the_bound_node() {
     assert_eq!(status.protocol_version, PROTOCOL_VERSION);
     assert_eq!(status.software_version, env!("CARGO_PKG_VERSION"));
     assert_eq!(status.node_id, node.id().to_string());
+    assert_eq!(
+        key::decode_public(&status.public_key).expect("encoded public key"),
+        *node.id().as_bytes(),
+        "the encoded key is the identity the hex names"
+    );
     assert!(
         status
             .relay_urls

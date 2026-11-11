@@ -37,7 +37,7 @@ async fn reports_an_unreachable_daemon() {
         .await
         .expect_err("a missing socket must fail");
     assert!(
-        error.to_string().contains("failed to reach daemon"),
+        error.to_string().contains("the daemon is offline"),
         "{error}"
     );
 }

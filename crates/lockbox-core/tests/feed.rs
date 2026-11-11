@@ -156,3 +156,48 @@ fn reads_the_attributes_a_page_may_quote_differently() {
         );
     }
 }
+
+#[test]
+fn decodes_the_character_references_a_document_writes() {
+    let document = r#"<rss version="2.0"><channel>
+        <title>Tom &amp; Jerry</title>
+        <item>
+            <title>Cut [&#8230;]</title>
+            <guid>one</guid>
+            <description>Named [&hellip;], hex [&#x2026;], a dash [&mdash;] and amp &amp;amp;</description>
+        </item>
+        </channel></rss>"#;
+    let parsed = feed::parse(document.as_bytes(), None).expect("parse rss");
+
+    assert_eq!(parsed.title.as_deref(), Some("Tom & Jerry"));
+    assert_eq!(parsed.entries[0].title, "Cut […]");
+    assert_eq!(
+        parsed.entries[0].summary.as_deref(),
+        Some("Named […], hex […], a dash [—] and amp &")
+    );
+}
+
+#[test]
+fn decodes_a_body_which_is_escaped_twice_over() {
+    let document = r#"<rss version="2.0"><channel><title>Example</title>
+        <item><title>One</title><guid>one</guid>
+        <description>Cut [&amp;#8230;] short</description>
+        </item></channel></rss>"#;
+    let parsed = feed::parse(document.as_bytes(), None).expect("parse rss");
+
+    assert_eq!(parsed.entries[0].summary.as_deref(), Some("Cut […] short"));
+}
+
+#[test]
+fn keeps_an_unknown_reference_as_it_was_written() {
+    let document = r#"<rss version="2.0"><channel><title>Example</title>
+        <item><title>One</title><guid>one</guid>
+        <description>An odd one [&nosuchentity;] stays</description>
+        </item></channel></rss>"#;
+    let parsed = feed::parse(document.as_bytes(), None).expect("parse rss");
+
+    assert_eq!(
+        parsed.entries[0].summary.as_deref(),
+        Some("An odd one [&nosuchentity;] stays")
+    );
+}

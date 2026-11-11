@@ -65,6 +65,8 @@ pub struct Reply {
     pub body: String,
     /// Validator to answer with.
     pub etag: Option<String>,
+    /// How long the server takes before it answers.
+    pub delay: Option<std::time::Duration>,
 }
 
 impl Reply {
@@ -74,7 +76,14 @@ impl Reply {
             status: 200,
             body: body.into(),
             etag: None,
+            delay: None,
         }
+    }
+
+    /// The same reply, answered after `delay`.
+    pub fn after(mut self, delay: std::time::Duration) -> Self {
+        self.delay = Some(delay);
+        self
     }
 
     /// The same document with a validator which it can be asked for.
@@ -111,6 +120,9 @@ impl Site {
                             .is_some_and(|etag| line.contains(etag))
                 });
                 seen.lock().expect("requests").push(request);
+                if let Some(delay) = reply.delay {
+                    tokio::time::sleep(delay).await;
+                }
                 let _ = stream.write_all(&answer(&reply, asked)).await;
                 let _ = stream.shutdown().await;
             }

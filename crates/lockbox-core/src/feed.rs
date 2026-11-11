@@ -6,6 +6,7 @@ use feed_rs::{
     model::{Entry as Document, FeedType, Link},
     parser::ParseFeedError,
 };
+use html_escape::decode_html_entities;
 use lockbox_proto::api::reader::Kind;
 use url::Url;
 
@@ -63,7 +64,7 @@ pub fn parse(body: &[u8], base: Option<&Url>) -> Result<Parsed, Error> {
     let kind = kind(feed.feed_type);
     let title = text(feed.title);
     let site_url = link(&feed.links);
-    let author = feed.authors.first().map(|person| person.name.clone());
+    let author = feed.authors.first().map(|person| decode(&person.name));
     let entries = feed
         .entries
         .into_iter()
@@ -135,10 +136,13 @@ fn item(entry: Document, author: Option<String>) -> Item {
         author: entry
             .authors
             .first()
-            .map(|person| person.name.clone())
+            .map(|person| decode(&person.name))
             .or(author),
         summary: text(entry.summary),
-        body: entry.content.and_then(|content| content.body),
+        body: entry
+            .content
+            .and_then(|content| content.body)
+            .map(|body| decode(&body)),
         published_at: entry
             .published
             .or(entry.updated)
@@ -157,8 +161,20 @@ fn kind(feed_type: FeedType) -> Kind {
 
 /// Text of a document field, where an empty one counts as missing.
 fn text(text: Option<feed_rs::model::Text>) -> Option<String> {
-    text.map(|text| text.content)
+    text.map(|text| decode(&text.content))
         .filter(|content| !content.trim().is_empty())
+}
+
+/// A piece of text with the character references which it writes decoded.
+///
+/// A document may escape its text once, or twice over when it was built by
+/// something which escaped it already, so one pass turns both into the
+/// characters a reader should see.
+fn decode(text: &str) -> String {
+    match text.contains('&') {
+        true => decode_html_entities(text).into_owned(),
+        false => text.to_owned(),
+    }
 }
 
 /// Address of the page which the links of a document point at.
