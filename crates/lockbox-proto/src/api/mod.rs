@@ -87,8 +87,7 @@ fn escape(value: &str) -> String {
 pub struct Page<T> {
     /// Rows in this page.
     pub items: Vec<T>,
-    /// Cursor for items that may appear after the current page. This string is
-    /// null if the list has been exhausted.
+    /// Cursor of the next page, or `null` when the list ends here.
     pub next: Option<String>,
 }
 
@@ -133,6 +132,6 @@ pub enum Code {
     Blocked,
     /// Another branch of the account won, so the account state cannot be served.
     Forked,
-    /// The serveer failed to handle the request.
+    /// The server failed to handle the request.
     Internal,
 }

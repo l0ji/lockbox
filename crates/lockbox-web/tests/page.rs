@@ -32,7 +32,7 @@ fn renders_a_live_node() {
         html.contains("<td>lbox1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0ssqs23x</td>"),
         "{html}"
     );
-    assert!(html.contains("<th>Hex</th>"), "{html}");
+    assert!(html.contains("<th>Endpoint ID</th>"), "{html}");
     assert!(html.contains("<td>test-node</td>"), "{html}");
     assert!(
         html.contains(&format!("<td>{PROTOCOL_VERSION}</td>")),
@@ -93,7 +93,7 @@ fn formats_uptime_in_two_units() {
     }
 }
 
-/// Render any page, which isn't expected to fail with the embedded templates.
+/// Render a page, which must not fail with the embedded templates.
 fn rendered<T: Template>(page: T) -> String {
     page.render().expect("render page")
 }
@@ -239,7 +239,7 @@ fn renders_one_entry() {
         section: "reader",
         title: "First post".to_owned(),
         feed: "Example blog".to_owned(),
-        author: "Penny".to_owned(),
+        author: "Jane".to_owned(),
         has_author: true,
         link: "https://example.com/first".to_owned(),
         has_url: true,
@@ -255,7 +255,7 @@ fn renders_one_entry() {
         html.contains("<title>lockbox: First post</title>"),
         "{html}"
     );
-    assert!(html.contains("Example blog | 3h ago | Penny"), "{html}");
+    assert!(html.contains("Example blog | 3h ago | Jane"), "{html}");
     assert!(
         !html.contains("mark read"),
         "the actions live in the list: {html}"
@@ -292,7 +292,7 @@ fn renders_an_entry_without_a_body() {
     );
     assert!(!html.contains("mark unread"), "{html}");
     assert!(!html.contains(r#"name="on""#), "{html}");
-    assert!(!html.contains("Penny"), "{html}");
+    assert!(!html.contains("Jane"), "{html}");
 }
 
 #[test]
@@ -306,9 +306,9 @@ fn renders_the_feed_list() {
                 url: "https://example.com/feed.xml".to_owned(),
                 kind: "rss",
                 interval: "1h".to_owned(),
-                polled: "3h ago".to_owned(),
+                refreshed: "3h ago".to_owned(),
                 timeout: 20,
-                agent: "Penny's reader".to_owned(),
+                user_agent: "Jane's reader".to_owned(),
                 paused: false,
                 has_error: false,
                 error: String::new(),
@@ -319,26 +319,26 @@ fn renders_the_feed_list() {
                 url: "https://broken.example/feed".to_owned(),
                 kind: "atom",
                 interval: "10m".to_owned(),
-                polled: "never".to_owned(),
+                refreshed: "never".to_owned(),
                 timeout: 90,
-                agent: String::new(),
+                user_agent: String::new(),
                 paused: true,
                 has_error: true,
                 error: "cannot fetch https://broken.example/feed".to_owned(),
             },
         ],
-        agent: "lockbox/0.1.0".to_owned(),
+        user_agent: "lockbox/0.1.0".to_owned(),
         has_error: true,
         error: "https://example.com is neither a feed nor a page with one".to_owned(),
     });
 
     assert!(
-        html.contains("rss | https://example.com/feed.xml | polled 3h ago"),
+        html.contains("rss | https://example.com/feed.xml | refreshed 3h ago"),
         "{html}"
     );
     assert!(html.contains("<td>1h</td>"), "{html}");
     assert!(
-        html.contains("atom | https://broken.example/feed | polled never"),
+        html.contains("atom | https://broken.example/feed | refreshed never"),
         "{html}"
     );
     assert!(html.contains("<td>10m</td>"), "{html}");
@@ -351,7 +351,7 @@ fn renders_the_feed_list() {
         html.contains("neither a feed nor a page with one"),
         "{html}"
     );
-    assert!(html.contains(r#"action="/feeds/2/poll""#), "{html}");
+    assert!(html.contains(r#"action="/feeds/2/refresh""#), "{html}");
     assert!(
         html.contains(r#"<form class="add" method="post" action="/feeds">"#),
         "{html}"
@@ -362,7 +362,7 @@ fn renders_the_feed_list() {
         "{html}"
     );
     assert!(
-        html.contains(r#"<input type="text" name="user_agent" value="Penny&#39;s reader""#),
+        html.contains(r#"<input type="text" name="user_agent" value="Jane&#39;s reader""#),
         "{html}"
     );
     assert!(html.contains(r#"placeholder="lockbox/0.1.0""#), "{html}");

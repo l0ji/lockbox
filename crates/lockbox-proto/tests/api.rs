@@ -108,7 +108,7 @@ fn names_the_node_routes() {
 fn names_the_reader_routes() {
     assert_eq!(reader::FEEDS_PATH, "/api/reader/feeds");
     assert_eq!(reader::feed_path(7), "/api/reader/feeds/7");
-    assert_eq!(reader::poll_path(7), "/api/reader/feeds/7/poll");
+    assert_eq!(reader::refresh_path(7), "/api/reader/feeds/7/refresh");
     assert_eq!(reader::ENTRIES_PATH, "/api/reader/entries");
     assert_eq!(reader::entry_path(7), "/api/reader/entries/7");
 }
@@ -206,7 +206,7 @@ fn names_the_feed_and_entry_states() {
 }
 
 #[test]
-fn reads_a_feed_change_which_clears_the_agent() {
+fn reads_a_feed_change_which_clears_the_user_agent() {
     let cleared: FeedChange = serde_json::from_str(r#"{"user_agent":null}"#).expect("change");
     assert_eq!(cleared.user_agent, Some(None));
 
@@ -220,7 +220,7 @@ fn reads_a_feed_change_which_clears_the_agent() {
 }
 
 #[test]
-fn names_the_default_agent() {
+fn names_the_default_user_agent() {
     assert!(
         DEFAULT_USER_AGENT.starts_with("lockbox/"),
         "{DEFAULT_USER_AGENT}"

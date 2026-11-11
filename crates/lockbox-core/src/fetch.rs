@@ -26,7 +26,7 @@ pub struct Request<'a> {
     pub last_modified: Option<&'a str>,
     /// How long the server has to answer.
     pub timeout: Duration,
-    /// Who the request says it is.
+    /// User agent the request sends.
     pub user_agent: &'a str,
 }
 
@@ -59,7 +59,7 @@ pub struct Fetcher {
 }
 
 impl Fetcher {
-    /// Build the client, whose timeout and agent each fetch names.
+    /// Build an HTTP client which every fetch reuses.
     pub fn new() -> Result<Self, Error> {
         let client = Client::builder().build().map_err(Error::Request)?;
         Ok(Self { client })

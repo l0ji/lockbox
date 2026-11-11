@@ -150,7 +150,7 @@ fn item(entry: Document, author: Option<String>) -> Item {
     }
 }
 
-/// The feed the model identified the document as, as the API names it.
+/// Format of a document, as named by the feed type.
 fn kind(feed_type: FeedType) -> Kind {
     match feed_type {
         FeedType::Atom => Kind::Atom,
@@ -165,11 +165,7 @@ fn text(text: Option<feed_rs::model::Text>) -> Option<String> {
         .filter(|content| !content.trim().is_empty())
 }
 
-/// A piece of text with the character references which it writes decoded.
-///
-/// A document may escape its text once, or twice over when it was built by
-/// something which escaped it already, so one pass turns both into the
-/// characters a reader should see.
+/// Text with any HTML character references decoded.
 fn decode(text: &str) -> String {
     match text.contains('&') {
         true => decode_html_entities(text).into_owned(),

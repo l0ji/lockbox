@@ -30,7 +30,7 @@
         <tr>
             <td class="name">
                 <a href="{{ feed.url }}" rel="noreferrer">{{ feed.title }}</a>
-                <span class="meta">{{ feed.kind }} | {{ feed.url }} | polled {{ feed.polled }}{% if feed.paused %} |
+                <span class="meta">{{ feed.kind }} | {{ feed.url }} | refreshed {{ feed.refreshed }}{% if feed.paused %} |
                     paused{% endif %}</span>
                 {%- if feed.has_error %}
                 <span class="notice">{{ feed.error }}</span>
@@ -41,14 +41,14 @@
                 <form class="fetch" method="post" action="/feeds/{{ feed.id }}/settings">
                     <input type="number" name="timeout_seconds" value="{{ feed.timeout }}" required
                         aria-label="timeout in seconds">
-                    <input type="text" name="user_agent" value="{{ feed.agent }}" placeholder="{{ agent }}"
+                    <input type="text" name="user_agent" value="{{ feed.user_agent }}" placeholder="{{ user_agent }}"
                         size="18" aria-label="user agent">
                     <button type="submit">save</button>
                 </form>
             </td>
             <td>
-                <form method="post" action="/feeds/{{ feed.id }}/poll">
-                    <button type="submit">poll</button>
+                <form method="post" action="/feeds/{{ feed.id }}/refresh">
+                    <button type="submit">refresh</button>
                 </form>
                 <form method="post" action="/feeds/{{ feed.id }}/delete">
                     <button type="submit">remove</button>

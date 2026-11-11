@@ -22,7 +22,7 @@ pub enum Error {
     TooNew { found: u32, known: u32 },
     /// Could not find the row requested by the call.
     NotFound,
-    /// The databse rejected the call.
+    /// The database rejected the call.
     Invalid(String),
     /// The database thread was closed.
     Closed,
@@ -55,7 +55,7 @@ impl std::error::Error for Error {
 
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
-        // A constraint which the call breaks is what the call asked for, not a fault
+        // A constraint violation is the caller's mistake, not a database fault
         match error.sqlite_error_code() {
             Some(rusqlite::ErrorCode::ConstraintViolation) => Self::Invalid(error.to_string()),
             _ => Self::Sqlite(error),

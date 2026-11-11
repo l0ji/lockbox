@@ -13,7 +13,7 @@ use axum::{
 use common::{Stub, sample_body, sample_entry, sample_feed};
 use lockbox_proto::api::{
     ApiError, Code, Page,
-    reader::{self, Entry, EntrySummary, Feed, FeedChange, Polled},
+    reader::{self, Entry, EntrySummary, Feed, FeedChange, Refreshed},
 };
 use lockbox_web::{AppState, DaemonClient, TEXT_LIMIT, router};
 use tower::ServiceExt;
@@ -99,7 +99,7 @@ impl Record {
 /// A stub daemon which records what the forms post and answers with `reply`.
 fn recorded(record: Record, reply: StatusCode) -> Router {
     let add = record.clone();
-    let poll = record.clone();
+    let refresh = record.clone();
     let remove = record.clone();
     let settings = record.clone();
     let mark = record.clone();
@@ -113,7 +113,7 @@ fn recorded(record: Record, reply: StatusCode) -> Router {
                     record.push(body);
                     (
                         reply,
-                        Json(Polled {
+                        Json(Refreshed {
                             feed: sample_feed(),
                             new_entries: 2,
                         }),
@@ -122,12 +122,12 @@ fn recorded(record: Record, reply: StatusCode) -> Router {
             }),
         )
         .route(
-            "/api/reader/feeds/{id}/poll",
+            "/api/reader/feeds/{id}/refresh",
             post(move |body: String| {
-                let record = poll.clone();
+                let record = refresh.clone();
                 async move {
                     record.push(body);
-                    Json(Polled {
+                    Json(Refreshed {
                         feed: sample_feed(),
                         new_entries: 1,
                     })
@@ -198,7 +198,7 @@ async fn serves_the_reading_list() {
         "{html}"
     );
     assert!(!html.contains(r#"href="/entry/1""#), "{html}");
-    // The row carries the two text buttons which the entry page used to hold
+    // The row carries the entry's two text buttons
     assert!(
         html.contains(r#"<form class="act read" method="post""#),
         "{html}"
@@ -349,7 +349,7 @@ async fn serves_one_entry() {
     let (code, _, html) = request(Method::GET, "/entry/1", None, stub.socket()).await;
     assert_eq!(code, StatusCode::OK);
     assert!(html.contains("First post"), "{html}");
-    assert!(html.contains("Penny"), "{html}");
+    assert!(html.contains("Jane"), "{html}");
     assert!(html.contains("words"), "{html}");
     assert!(
         !html.contains("<p>words</p>"),
@@ -373,7 +373,7 @@ async fn serves_the_feed_list() {
     assert!(html.contains("Example blog"), "{html}");
     assert!(html.contains("https://example.com/feed.xml"), "{html}");
     assert!(html.contains("<td>1h</td>"), "{html}");
-    assert!(html.contains(r#"action="/feeds/1/poll""#), "{html}");
+    assert!(html.contains(r#"action="/feeds/1/refresh""#), "{html}");
     assert!(html.contains(r#"action="/feeds/1/delete""#), "{html}");
     assert!(html.contains(r#"action="/feeds/1/settings""#), "{html}");
     assert!(
@@ -401,7 +401,7 @@ async fn adds_a_feed() {
         "/feeds"
     );
     let expected = concat!(
-        r#"{"url":"https://example.com/feed.xml","title":null,"poll_seconds":null,"#,
+        r#"{"url":"https://example.com/feed.xml","title":null,"refresh_seconds":null,"#,
         r#""timeout_seconds":null,"user_agent":null}"#
     );
     assert_eq!(record.bodies(), [expected]);
@@ -450,11 +450,12 @@ async fn reports_a_feed_which_cannot_be_added() {
 }
 
 #[tokio::test]
-async fn polls_and_removes_a_feed() {
+async fn refreshes_and_removes_a_feed() {
     let record = Record::default();
     let stub = Stub::serve(recorded(record.clone(), StatusCode::CREATED)).await;
 
-    let (code, headers, _) = request(Method::POST, "/feeds/1/poll", Some(""), stub.socket()).await;
+    let (code, headers, _) =
+        request(Method::POST, "/feeds/1/refresh", Some(""), stub.socket()).await;
     assert_eq!(code, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION], "/feeds");
 
@@ -575,7 +576,7 @@ async fn changes_how_a_feed_is_fetched() {
 }
 
 #[tokio::test]
-async fn returns_a_feed_to_the_default_agent() {
+async fn returns_a_feed_to_the_default_user_agent() {
     let record = Record::default();
     let stub = Stub::serve(recorded(record.clone(), StatusCode::CREATED)).await;
 

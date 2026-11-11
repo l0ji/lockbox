@@ -7,7 +7,7 @@ use lockbox_store::{
         self, Visibility,
         bookmarks::{self, NewBookmark},
         entries::{self, Filter, NewEntry},
-        feeds::{self, NewFeed, Poll},
+        feeds::{self, NewFeed, Refresh},
     },
 };
 
@@ -39,12 +39,12 @@ pub(super) fn item(source: &str, published_at: Option<i64>) -> NewEntry {
     }
 }
 
-/// Record a poll at `now` that found `entries`.
-pub(super) async fn poll(db: &Db, id: i64, now: i64, entries: Vec<NewEntry>) -> usize {
-    feeds::record_poll(
+/// Record a refresh at `now` that found `entries`.
+pub(super) async fn refresh(db: &Db, id: i64, now: i64, entries: Vec<NewEntry>) -> usize {
+    feeds::record_refresh(
         db,
         id,
-        Poll {
+        Refresh {
             fetched_at: now,
             etag: None,
             last_modified: None,
@@ -52,7 +52,7 @@ pub(super) async fn poll(db: &Db, id: i64, now: i64, entries: Vec<NewEntry>) -> 
         },
     )
     .await
-    .expect("record poll")
+    .expect("record refresh")
 }
 
 /// Titles of an entry page, in order.

@@ -17,26 +17,26 @@ use lockbox_proto::api::{
     ApiError, ListQuery, Page,
     reader::{
         DEFAULT_USER_AGENT, ENTRIES_PATH, Entry, EntryChange, EntryQuery, EntrySummary, FEEDS_PATH,
-        Feed, FeedChange, Kind, NewFeed, entry_path, feed_path, poll_path,
+        Feed, FeedChange, Kind, NewFeed, entry_path, feed_path, refresh_path,
     },
 };
 use serde::Deserialize;
 
 use crate::{AppState, ClientError, DaemonClient, ErrorPage, Response as Reply};
 
-/// Page which lists the entries of all feeds.
+/// Page which lists the reader's entries.
 pub const ENTRIES_PAGE: &str = "/";
 
-/// Page which shows a single entry.
+/// Base of the page which shows a single entry.
 pub const ENTRY_PAGE: &str = "/entry";
 
-/// How much of an entry's text a view shows before it is truncated.
+/// Characters of text which a page shows before it truncates.
 pub const TEXT_LIMIT: usize = 300;
 
-/// Page which lists the subscribed feeds and can add new ones.
+/// Page which lists the subscribed feeds, with a form to add one.
 pub const FEEDS_PAGE: &str = "/feeds";
 
-/// Page which shows the details of a single entry.
+/// Address of one entry's page.
 pub fn entry_page(id: i64) -> String {
     format!("{ENTRY_PAGE}/{id}")
 }
@@ -48,16 +48,16 @@ pub fn routes() -> Router<AppState> {
         .route(&format!("{ENTRY_PAGE}/{{id}}/read"), post(mark_read))
         .route(&format!("{ENTRY_PAGE}/{{id}}/star"), post(mark_starred))
         .route(FEEDS_PAGE, get(feeds).post(add))
-        .route(&format!("{FEEDS_PAGE}/{{id}}/poll"), post(poll))
+        .route(&format!("{FEEDS_PAGE}/{{id}}/refresh"), post(refresh))
         .route(&format!("{FEEDS_PAGE}/{{id}}/settings"), post(settings))
         .route(&format!("{FEEDS_PAGE}/{{id}}/delete"), post(remove))
 }
 
-/// Query type for what the entries list should show.
+/// Filter and paging of the reading list, as a browser sends them.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct PageQuery {
-    /// Only entries of this feed.
+    /// Only entries from this feed.
     feed: Option<i64>,
     /// Only show read entries when true.
     read: Option<bool>,
@@ -118,7 +118,7 @@ async fn entries(
         )
     });
 
-    html(EntriesPage {
+    render(EntriesPage {
         section: "reader",
         filters: filters(&query),
         feeds: feed_links(&feeds, &query),
@@ -145,12 +145,12 @@ async fn entry(
         .unwrap_or_else(|| "unknown feed".to_owned());
 
     let summary = entry.summary;
-    let (author, has_author) = text_of(summary.author.clone());
-    let (link, has_url) = text_of(summary.url.clone());
-    let (body, has_body) = visible(entry.body);
-    let (excerpt, has_excerpt) = visible(summary.summary.clone());
+    let (author, has_author) = present(summary.author.clone());
+    let (link, has_url) = present(summary.url.clone());
+    let (body, has_body) = truncated_text(entry.body);
+    let (excerpt, has_excerpt) = truncated_text(summary.summary.clone());
 
-    html(EntryPage {
+    render(EntryPage {
         section: "reader",
         title: summary.title.clone(),
         feed,
@@ -177,7 +177,7 @@ async fn add(State(state): State<AppState>, Form(form): Form<AddFeed>) -> Respon
     let request = NewFeed {
         url: form.url,
         title: None,
-        poll_seconds: None,
+        refresh_seconds: None,
         timeout_seconds: None,
         user_agent: None,
     };
@@ -191,8 +191,8 @@ async fn add(State(state): State<AppState>, Form(form): Form<AddFeed>) -> Respon
 }
 
 /// Fetch one feed now.
-async fn poll(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
-    match state.client().post(&poll_path(id), &()).await {
+async fn refresh(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    match state.client().post(&refresh_path(id), &()).await {
         Ok(reply) if reply.is_success() => Redirect::to(FEEDS_PAGE).into_response(),
         Ok(reply) => render_feeds(&state, reason(&reply)).await.into_response(),
         Err(error) => render_feeds(&state, error.to_string())
@@ -209,7 +209,7 @@ async fn settings(
 ) -> Response {
     let change = FeedChange {
         timeout_seconds: Some(form.timeout_seconds),
-        user_agent: Some(agent_of(&form.user_agent)),
+        user_agent: Some(user_agent_of(&form.user_agent)),
         ..FeedChange::default()
     };
     match state.client().patch(&feed_path(id), &change).await {
@@ -268,31 +268,30 @@ async fn mark_starred(
     .await
 }
 
-/// Change the reader's state of one entry and go back to the page it was
-/// requested from.
+/// Change one entry and return to the page the form came from.
 async fn mark(state: &AppState, id: i64, change: EntryChange, back: Option<String>) -> Response {
     match state.client().patch(&entry_path(id), &change).await {
         Ok(reply) if reply.is_success() => Redirect::to(&return_to(back)).into_response(),
-        Ok(reply) => Failure::of(&reply).into_response(),
+        Ok(reply) => Failure::from_reply(&reply).into_response(),
         Err(error) => Failure::from(error).into_response(),
     }
 }
 
-/// Render the feed page, with the reason the last form failed if found.
+/// Render the feed page, with the reason a form failed if one did.
 async fn render_feeds(state: &AppState, error: String) -> Result<Html<String>, Failure> {
     let feeds = all_feeds(state.client()).await?;
     let now = now();
     let rows = feeds.iter().map(|feed| feed_row(feed, now)).collect();
-    html(FeedsPage {
+    render(FeedsPage {
         section: "feeds",
         feeds: rows,
-        agent: DEFAULT_USER_AGENT.to_owned(),
+        user_agent: DEFAULT_USER_AGENT.to_owned(),
         has_error: !error.is_empty(),
         error,
     })
 }
 
-/// Show a list of entries from all feeds that are currently subscribed to.
+/// Every feed, following the list's cursors.
 async fn all_feeds(client: &DaemonClient) -> Result<Vec<Feed>, ClientError> {
     let mut feeds = Vec::new();
     let mut cursor = None;
@@ -312,7 +311,7 @@ async fn all_feeds(client: &DaemonClient) -> Result<Vec<Feed>, ClientError> {
     }
 }
 
-/// Get the utilized filters from a [`PageQuery`].
+/// The filter links which a [`PageQuery`] offers.
 fn filters(query: &PageQuery) -> Vec<FilterLink> {
     let current = match (query.read, query.starred) {
         (Some(false), _) => "unread",
@@ -343,7 +342,7 @@ fn filters(query: &PageQuery) -> Vec<FilterLink> {
     .collect()
 }
 
-/// The feeds which the sidebar links to, persisting the current feed.
+/// The sidebar's feed links, which keep the current filters.
 fn feed_links(feeds: &[Feed], query: &PageQuery) -> Vec<FeedLink> {
     let link = |title: String, feed: Option<i64>, selected: bool| FeedLink {
         title,
@@ -370,12 +369,10 @@ fn feed_links(feeds: &[Feed], query: &PageQuery) -> Vec<FeedLink> {
     links
 }
 
-/// A single entry as the reading list shows it.
-///
-/// The link leads to the entry's original URL or to the entry's own page if no
-/// URL is provided.
+/// One entry as the reading list shows it, linking to the entry's URL or to
+/// its own page when it has none.
 fn row(entry: EntrySummary, feeds: &HashMap<i64, String>, now: i64) -> Row {
-    let (excerpt, has_excerpt) = visible(entry.summary);
+    let (excerpt, has_excerpt) = truncated_text(entry.summary);
     Row {
         link: entry.url.clone().unwrap_or_else(|| entry_page(entry.id)),
         title: entry.title,
@@ -394,17 +391,17 @@ fn row(entry: EntrySummary, feeds: &HashMap<i64, String>, now: i64) -> Row {
     }
 }
 
-/// A single feed as showcased in the feeds page.
+/// One feed as the feeds page shows it.
 fn feed_row(feed: &Feed, now: i64) -> FeedRow {
     FeedRow {
         id: feed.id,
         title: feed_title(feed),
         url: feed.url.clone(),
         kind: kind_text(feed.kind),
-        interval: interval(feed.poll_seconds),
+        interval: interval(feed.refresh_seconds),
         timeout: feed.timeout_seconds,
-        agent: feed.user_agent.clone().unwrap_or_default(),
-        polled: match feed.fetched_at {
+        user_agent: feed.user_agent.clone().unwrap_or_default(),
+        refreshed: match feed.fetched_at {
             Some(at) => when(at, now),
             None => "never".to_owned(),
         },
@@ -414,7 +411,7 @@ fn feed_row(feed: &Feed, now: i64) -> FeedRow {
     }
 }
 
-/// Name of a feed. Falls back to its address.
+/// Name of a feed, falling back to its address.
 fn feed_title(feed: &Feed) -> String {
     match &feed.title {
         Some(title) if !title.trim().is_empty() => title.clone(),
@@ -422,7 +419,7 @@ fn feed_title(feed: &Feed) -> String {
     }
 }
 
-/// The name of the feed type in use by a feed's source.
+/// Name of a feed's format.
 fn kind_text(kind: Kind) -> &'static str {
     match kind {
         Kind::Rss => "rss",
@@ -431,7 +428,7 @@ fn kind_text(kind: Kind) -> &'static str {
     }
 }
 
-/// How often a feed is polled, in the largest unit that fits.
+/// How often a feed is refreshed, in the largest unit that fits.
 fn interval(seconds: i64) -> String {
     match seconds {
         seconds if seconds % 3600 == 0 => format!("{}h", seconds / 3600),
@@ -440,7 +437,7 @@ fn interval(seconds: i64) -> String {
     }
 }
 
-/// How long ago a timestamp was, returning a unit of time.
+/// How long ago a timestamp was, in its largest whole unit.
 fn age(at: i64, now: i64) -> (i64, &'static str) {
     let seconds = now.saturating_sub(at);
     let days = seconds / 86_400;
@@ -459,7 +456,7 @@ fn age(at: i64, now: i64) -> (i64, &'static str) {
     }
 }
 
-/// How long ago a moment was, in the largest unit that fits.
+/// How long ago a moment was, in words.
 fn when(at: i64, now: i64) -> String {
     match age(at, now) {
         (_, "s") => "just now".to_owned(),
@@ -467,7 +464,7 @@ fn when(at: i64, now: i64) -> String {
     }
 }
 
-/// The same as `when` but as a smaller timestamp.
+/// How long ago a moment was, as a short stamp.
 fn stamp(at: i64, now: i64) -> String {
     match age(at, now) {
         (_, "s") => "now".to_owned(),
@@ -475,7 +472,7 @@ fn stamp(at: i64, now: i64) -> String {
     }
 }
 
-/// Where a form's response should send the browser back to.
+/// Page a form returns to, which must stay on this site.
 fn return_to(back: Option<String>) -> String {
     match back {
         Some(back) if back.starts_with('/') && !back.starts_with("//") => back,
@@ -483,17 +480,16 @@ fn return_to(back: Option<String>) -> String {
     }
 }
 
-/// The user agent which a form names, wherein an empty one means the default.
-fn agent_of(agent: &str) -> Option<String> {
-    let agent = agent.trim();
-    match agent.is_empty() {
+/// User agent a form names, where an empty one means the default.
+fn user_agent_of(user_agent: &str) -> Option<String> {
+    let user_agent = user_agent.trim();
+    match user_agent.is_empty() {
         true => None,
-        false => Some(agent.to_owned()),
+        false => Some(user_agent.to_owned()),
     }
 }
 
-/// Cut a portion of text down based on the `limit` and return everything before
-/// it.
+/// The first `limit` characters of `text`, with an ellipsis where it was cut.
 pub fn truncate(text: &str, limit: usize) -> String {
     let mut cut: String = text.chars().take(limit).collect();
     if text.chars().nth(limit).is_some() {
@@ -502,22 +498,20 @@ pub fn truncate(text: &str, limit: usize) -> String {
     cut
 }
 
-/// The visible portion of the `text`, cut where it is longer than
-/// [`TEXT_LIMIT`].
-fn visible(text: Option<String>) -> (String, bool) {
-    text_of(text.map(|text| truncate(&text, TEXT_LIMIT)))
+/// Text cut to [`TEXT_LIMIT`], where an empty string counts as missing.
+fn truncated_text(text: Option<String>) -> (String, bool) {
+    present(text.map(|text| truncate(&text, TEXT_LIMIT)))
 }
 
-/// Cleanup for external text to make sure it isn't just empty.
-fn text_of(text: Option<String>) -> (String, bool) {
+/// Text of an optional field, where an empty string counts as missing.
+fn present(text: Option<String>) -> (String, bool) {
     match text {
         Some(text) if !text.trim().is_empty() => (text, true),
         _ => (String::new(), false),
     }
 }
 
-/// Create a reason to put in a reply when rejecting a form, intentionally or
-/// not.
+/// Reason for a failed reply, as given by the daemon.
 fn reason(reply: &Reply) -> String {
     match serde_json::from_slice::<ApiError>(&reply.body) {
         Ok(error) => error.error,
@@ -533,10 +527,10 @@ fn now() -> i64 {
         .unwrap_or_default()
 }
 
-/// Render a page, failing the request when the template cannot be parsed.
-fn html<T: Template>(page: T) -> Result<Html<String>, Failure> {
+/// Render a page, mapping a template failure to a server error.
+fn render<T: Template>(page: T) -> Result<Html<String>, Failure> {
     match page.render() {
-        Ok(html) => Ok(Html(html)),
+        Ok(body) => Ok(Html(body)),
         Err(error) => {
             tracing::error!("{error}");
             Err(Failure {
@@ -548,7 +542,7 @@ fn html<T: Template>(page: T) -> Result<Html<String>, Failure> {
     }
 }
 
-/// What a page reports when the web server cannot connect to the daemon.
+/// A failed request, shown by the error page.
 #[derive(Debug)]
 pub struct Failure {
     status: StatusCode,
@@ -558,8 +552,8 @@ pub struct Failure {
 }
 
 impl Failure {
-    /// The failure reported to the user.
-    fn of(reply: &Reply) -> Self {
+    /// The failure which a reply describes.
+    fn from_reply(reply: &Reply) -> Self {
         Self {
             status: StatusCode::from_u16(reply.status).unwrap_or(StatusCode::BAD_GATEWAY),
             message: reason(reply),
@@ -631,7 +625,7 @@ pub struct FetchSettings {
 #[derive(Debug, Deserialize)]
 pub struct Toggle {
     on: bool,
-    /// Page to answer to, which is the reading list when undefined.
+    /// Page to return to, or the reading list when missing.
     back: Option<String>,
 }
 
@@ -645,7 +639,7 @@ pub struct EntriesPage {
     pub feeds: Vec<FeedLink>,
     /// Search query for a set of entries.
     pub search: String,
-    /// Address which the row buttons answer back to.
+    /// Page which the row buttons return to.
     pub back: String,
     /// Feed entries on the page.
     pub rows: Vec<Row>,
@@ -662,19 +656,19 @@ pub struct FilterLink {
     pub selected: bool,
 }
 
-/// A link to a single feed's entries.
+/// A link to one feed's entries.
 pub struct FeedLink {
     pub title: String,
     pub href: String,
     pub selected: bool,
 }
 
-/// One entry as shown in the reading list.
+/// One row of the reading list.
 pub struct Row {
     pub link: String,
     pub title: String,
     pub feed: String,
-    /// How long ago the entry was published.
+    /// How long ago the entry reached the list.
     pub stamp: String,
     pub has_excerpt: bool,
     pub excerpt: String,
@@ -715,15 +709,15 @@ pub struct FeedsPage {
     /// Section of the site which the navbar marks.
     pub section: &'static str,
     pub feeds: Vec<FeedRow>,
-    /// User agent which a fetch uses when the user names none.
-    pub agent: String,
+    /// User agent a fetch sends when the feed names none.
+    pub user_agent: String,
     /// Whether the previous form submission failed.
     pub has_error: bool,
     /// Reason why the form submission failed.
     pub error: String,
 }
 
-/// A single feed as displayed in the feeds list page.
+/// One feed in the feed list.
 pub struct FeedRow {
     pub id: i64,
     pub title: String,
@@ -731,8 +725,8 @@ pub struct FeedRow {
     pub kind: &'static str,
     pub interval: String,
     pub timeout: i64,
-    pub agent: String,
-    pub polled: String,
+    pub user_agent: String,
+    pub refreshed: String,
     pub paused: bool,
     pub has_error: bool,
     pub error: String,

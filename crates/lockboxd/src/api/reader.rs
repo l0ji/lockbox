@@ -1,5 +1,4 @@
-//! Implementation of the routes for the feeds the user follows and the
-//! entries they read.
+//! Routes for the feeds the user follows and the entries they read.
 
 use axum::{
     Json, Router,
@@ -12,7 +11,7 @@ use lockbox_proto::api::{
     cursor::Key,
     reader::{
         ENTRIES_PATH, ENTRIES_SORT, Entry, EntryChange, EntryQuery, EntrySummary, FEEDS_PATH,
-        FEEDS_SORT, Feed, FeedChange, Kind, NewFeed, Polled, Visibility,
+        FEEDS_SORT, Feed, FeedChange, Kind, NewFeed, Refreshed, Visibility,
     },
 };
 use lockbox_store::local::{entries, feeds};
@@ -20,7 +19,7 @@ use lockbox_store::local::{entries, feeds};
 use super::{ApiJson, Failure};
 use crate::{
     AppState,
-    reader::{self as polling, now},
+    reader::{self, now},
 };
 
 pub fn routes() -> Router<AppState> {
@@ -30,7 +29,7 @@ pub fn routes() -> Router<AppState> {
             &format!("{FEEDS_PATH}/{{id}}"),
             get(read_feed).patch(change_feed).delete(remove_feed),
         )
-        .route(&format!("{FEEDS_PATH}/{{id}}/poll"), post(poll_feed))
+        .route(&format!("{FEEDS_PATH}/{{id}}/refresh"), post(refresh_feed))
         .route(ENTRIES_PATH, get(list_entries))
         .route(
             &format!("{ENTRIES_PATH}/{{id}}"),
@@ -64,15 +63,15 @@ async fn list_feeds(
     }))
 }
 
-/// Add a feed which the user named using its address and poll it once.
+/// Add a feed by address and refresh it once.
 async fn add_feed(
     State(state): State<AppState>,
     ApiJson(request): ApiJson<NewFeed>,
-) -> Result<(StatusCode, Json<Polled>), Failure> {
-    let polled = polling::add(state.db(), state.fetcher(), request)
+) -> Result<(StatusCode, Json<Refreshed>), Failure> {
+    let refreshed = reader::add(state.db(), state.fetcher(), request)
         .await
-        .map_err(poll_failure)?;
-    Ok((StatusCode::CREATED, Json(polled_out(polled))))
+        .map_err(refresh_failure)?;
+    Ok((StatusCode::CREATED, Json(refreshed_out(refreshed))))
 }
 
 /// Read one feed.
@@ -97,7 +96,7 @@ async fn change_feed(
         site_url: change.site_url,
         title: change.title,
         kind: change.kind.map(kind_in),
-        poll_seconds: change.poll_seconds,
+        refresh_seconds: change.refresh_seconds,
         timeout_seconds: change.timeout_seconds,
         user_agent: change.user_agent,
         visibility: change.visibility.map(visibility_in),
@@ -118,17 +117,17 @@ async fn remove_feed(
 }
 
 /// Fetch one feed now.
-async fn poll_feed(
+async fn refresh_feed(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> Result<Json<Polled>, Failure> {
+) -> Result<Json<Refreshed>, Failure> {
     let feed = feeds::get(state.db(), id)
         .await?
         .ok_or_else(|| missing("feed"))?;
-    let polled = polling::poll(state.db(), state.fetcher(), feed)
+    let refreshed = reader::refresh(state.db(), state.fetcher(), feed)
         .await
-        .map_err(poll_failure)?;
-    Ok(Json(polled_out(polled)))
+        .map_err(refresh_failure)?;
+    Ok(Json(refreshed_out(refreshed)))
 }
 
 /// List the entries which a filter matches, newest first.
@@ -175,7 +174,7 @@ async fn read_entry(
     }
 }
 
-/// Turn the reader's state of one entry on or off.
+/// Change the reader state of one entry.
 async fn change_entry(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -215,13 +214,13 @@ fn missing(what: &str) -> Failure {
     })
 }
 
-/// A function that handles polling failures, which is typically the server's
-/// fault unless the store refused the action.
-fn poll_failure(error: polling::Error) -> Failure {
+/// The reply for a failed refresh, which is a gateway error unless the store or
+/// the address is at fault.
+fn refresh_failure(error: reader::Error) -> Failure {
     match error {
-        polling::Error::Store(error) => error.into(),
-        polling::Error::NoFeed(_) => ApiError::invalid(error.to_string()).into(),
-        polling::Error::Fetch { .. } | polling::Error::Parse { .. } => {
+        reader::Error::Store(error) => error.into(),
+        reader::Error::NoFeed(_) => ApiError::invalid(error.to_string()).into(),
+        reader::Error::Fetch { .. } | reader::Error::Parse { .. } => {
             Failure::new(ApiError::internal(error.to_string())).with_status(StatusCode::BAD_GATEWAY)
         }
     }
@@ -263,10 +262,10 @@ fn feed_out(feed: feeds::Feed) -> Feed {
         site_url: feed.site_url,
         title: feed.title,
         kind: kind_out(feed.kind),
-        poll_seconds: feed.poll_seconds,
+        refresh_seconds: feed.refresh_seconds,
         timeout_seconds: feed.timeout_seconds,
         user_agent: feed.user_agent,
-        next_poll_at: feed.next_poll_at,
+        next_refresh_at: feed.next_refresh_at,
         fetched_at: feed.fetched_at,
         last_error: feed.last_error,
         visibility: visibility_out(feed.visibility),
@@ -276,11 +275,11 @@ fn feed_out(feed: feeds::Feed) -> Feed {
     }
 }
 
-/// The reply form of one poll.
-fn polled_out(polled: polling::Polled) -> Polled {
-    Polled {
-        feed: feed_out(polled.feed),
-        new_entries: polled.new_entries,
+/// The reply form of one refresh.
+fn refreshed_out(refreshed: reader::Refreshed) -> Refreshed {
+    Refreshed {
+        feed: feed_out(refreshed.feed),
+        new_entries: refreshed.new_entries,
     }
 }
 

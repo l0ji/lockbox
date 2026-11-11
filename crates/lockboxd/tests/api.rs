@@ -20,7 +20,7 @@ use lockbox_proto::{
         node::{self, Health, Status},
         reader::{
             self, DEFAULT_USER_AGENT, ENTRIES_PATH, Entry, EntrySummary, FEEDS_PATH, Feed, Kind,
-            Polled,
+            Refreshed,
         },
     },
 };
@@ -115,8 +115,8 @@ async fn page_site() -> Site {
     .await
 }
 
-/// Add the feed at `url` and answer with the poll it came with.
-async fn add(daemon: &Daemon, url: &str) -> Polled {
+/// Add the feed at `url` and answer with the refresh it came with.
+async fn add(daemon: &Daemon, url: &str) -> Refreshed {
     let request_body = serde_json::json!({ "url": url }).to_string();
     let (code, body) = request(daemon.socket(), "POST", FEEDS_PATH, Some(&request_body)).await;
     assert_eq!(code, 201, "{body}");
@@ -294,17 +294,17 @@ async fn adds_a_feed_and_the_entries_it_brought() {
     let daemon = Daemon::start().await;
     let site = site(RSS).await;
 
-    let polled = add(&daemon, &site.url("/feed.xml")).await;
-    assert_eq!(polled.new_entries, 2);
-    assert_eq!(polled.feed.url, site.url("/feed.xml"));
-    assert_eq!(polled.feed.title.as_deref(), Some("Example blog"));
+    let refreshed = add(&daemon, &site.url("/feed.xml")).await;
+    assert_eq!(refreshed.new_entries, 2);
+    assert_eq!(refreshed.feed.url, site.url("/feed.xml"));
+    assert_eq!(refreshed.feed.title.as_deref(), Some("Example blog"));
     assert_eq!(
-        polled.feed.site_url.as_deref(),
+        refreshed.feed.site_url.as_deref(),
         Some("https://example.com/")
     );
-    assert_eq!(polled.feed.kind, Kind::Rss);
-    assert_eq!(polled.feed.poll_seconds, 3600);
-    assert!(polled.feed.fetched_at.is_some());
+    assert_eq!(refreshed.feed.kind, Kind::Rss);
+    assert_eq!(refreshed.feed.refresh_seconds, 3600);
+    assert!(refreshed.feed.fetched_at.is_some());
 
     assert_eq!(titles(&daemon, "").await, ["Second post", "First post"]);
 }
@@ -314,9 +314,9 @@ async fn adds_the_feed_which_a_page_advertises() {
     let daemon = Daemon::start().await;
     let site = page_site().await;
 
-    let polled = add(&daemon, &site.url("/")).await;
-    assert_eq!(polled.feed.url, site.url("/feed.xml"));
-    assert_eq!(polled.new_entries, 2);
+    let refreshed = add(&daemon, &site.url("/")).await;
+    assert_eq!(refreshed.feed.url, site.url("/feed.xml"));
+    assert_eq!(refreshed.new_entries, 2);
 }
 
 #[tokio::test]
@@ -349,17 +349,17 @@ async fn reports_a_feed_which_cannot_be_fetched() {
 }
 
 #[tokio::test]
-async fn records_a_failed_poll_on_the_feed() {
+async fn records_a_failed_refresh_on_the_feed() {
     let daemon = Daemon::start().await;
     let site = site(RSS).await;
-    let polled = add(&daemon, &site.url("/feed.xml")).await;
+    let refreshed = add(&daemon, &site.url("/feed.xml")).await;
 
-    // The site is gone, so the next poll fails and says so on the feed
+    // The site is gone, so the next refresh fails and says so on the feed
     drop(site);
     let (code, body) = request(
         daemon.socket(),
         "POST",
-        &reader::poll_path(polled.feed.id),
+        &reader::refresh_path(refreshed.feed.id),
         None,
     )
     .await;
@@ -368,7 +368,7 @@ async fn records_a_failed_poll_on_the_feed() {
     let (code, body) = request(
         daemon.socket(),
         "GET",
-        &reader::feed_path(polled.feed.id),
+        &reader::feed_path(refreshed.feed.id),
         None,
     )
     .await;
@@ -385,7 +385,7 @@ async fn records_a_failed_poll_on_the_feed() {
 }
 
 #[tokio::test]
-async fn polls_a_feed_again() {
+async fn refreshes_a_feed_again() {
     let daemon = Daemon::start().await;
     let served = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&served);
@@ -403,20 +403,20 @@ async fn polls_a_feed_again() {
     ))
     .await;
 
-    let polled = add(&daemon, &site.url("/feed.xml")).await;
-    assert_eq!(polled.new_entries, 2);
+    let refreshed = add(&daemon, &site.url("/feed.xml")).await;
+    assert_eq!(refreshed.new_entries, 2);
 
     let (code, body) = request(
         daemon.socket(),
         "POST",
-        &reader::poll_path(polled.feed.id),
+        &reader::refresh_path(refreshed.feed.id),
         None,
     )
     .await;
     assert_eq!(code, 200, "{body}");
-    let polled: Polled = json(&body);
-    assert_eq!(polled.new_entries, 1);
-    assert_eq!(polled.feed.last_error, None);
+    let refreshed: Refreshed = json(&body);
+    assert_eq!(refreshed.new_entries, 1);
+    assert_eq!(refreshed.feed.last_error, None);
 
     assert_eq!(
         titles(&daemon, "").await,
@@ -428,7 +428,7 @@ async fn polls_a_feed_again() {
 async fn filters_and_pages_the_reading_list() {
     let daemon = Daemon::start().await;
     let site = site(RSS_UPDATED).await;
-    let polled = add(&daemon, &site.url("/feed.xml")).await;
+    let refreshed = add(&daemon, &site.url("/feed.xml")).await;
 
     let page = entries(&daemon, "?limit=2").await;
     assert_eq!(
@@ -452,7 +452,7 @@ async fn filters_and_pages_the_reading_list() {
 
     // The feed filter names the one feed which brought them
     assert_eq!(
-        entries(&daemon, &format!("?feed={}", polled.feed.id))
+        entries(&daemon, &format!("?feed={}", refreshed.feed.id))
             .await
             .items
             .len(),
@@ -523,27 +523,27 @@ async fn reads_marks_and_deletes_an_entry() {
 async fn changes_and_removes_a_feed() {
     let daemon = Daemon::start().await;
     let site = site(RSS).await;
-    let polled = add(&daemon, &site.url("/feed.xml")).await;
-    let path = reader::feed_path(polled.feed.id);
+    let refreshed = add(&daemon, &site.url("/feed.xml")).await;
+    let path = reader::feed_path(refreshed.feed.id);
 
     let (code, body) = request(
         daemon.socket(),
         "PATCH",
         &path,
-        Some(r#"{"title":"Renamed","poll_seconds":600}"#),
+        Some(r#"{"title":"Renamed","refresh_seconds":600}"#),
     )
     .await;
     assert_eq!(code, 200, "{body}");
     let feed: Feed = json(&body);
     assert_eq!(feed.title.as_deref(), Some("Renamed"));
-    assert_eq!(feed.poll_seconds, 600);
+    assert_eq!(feed.refresh_seconds, 600);
 
     // The interval is what the schema allows, no less than a minute
     let (code, body) = request(
         daemon.socket(),
         "PATCH",
         &path,
-        Some(r#"{"poll_seconds":10}"#),
+        Some(r#"{"refresh_seconds":10}"#),
     )
     .await;
     assert_eq!(code, 400, "{body}");
@@ -642,24 +642,27 @@ async fn fetches_a_feed_as_the_user_asked() {
     let request_body = serde_json::json!({
         "url": site.url("/feed.xml"),
         "timeout_seconds": 7,
-        "user_agent": "Penny's reader",
+        "user_agent": "Jane's reader",
     })
     .to_string();
     let (code, body) = request(daemon.socket(), "POST", FEEDS_PATH, Some(&request_body)).await;
     assert_eq!(code, 201, "{body}");
-    let polled: Polled = json(&body);
-    assert_eq!(polled.feed.timeout_seconds, 7);
-    assert_eq!(polled.feed.user_agent.as_deref(), Some("Penny's reader"));
-    assert_eq!(site.agents(), ["Penny's reader"]);
+    let refreshed: Refreshed = json(&body);
+    assert_eq!(refreshed.feed.timeout_seconds, 7);
+    assert_eq!(refreshed.feed.user_agent.as_deref(), Some("Jane's reader"));
+    assert_eq!(site.user_agents(), ["Jane's reader"]);
 
-    // A feed which names no agent and no timeout gets the node's own
+    // A feed which names no user agent and no timeout gets the node's own
     let plain = add(&daemon, &site.url("/feed.xml")).await;
-    assert_eq!(plain.feed.id, polled.feed.id, "the feed is already stored");
+    assert_eq!(
+        plain.feed.id, refreshed.feed.id,
+        "the feed is already stored"
+    );
     let other = add(&daemon, &page_site().await.url("/feed.xml")).await;
     assert_eq!(other.feed.timeout_seconds, DEFAULT_TIMEOUT_SECONDS);
     assert_eq!(other.feed.user_agent, None);
     assert_eq!(
-        site.agents().last().map(String::as_str),
+        site.user_agents().last().map(String::as_str),
         Some(DEFAULT_USER_AGENT)
     );
 }
@@ -668,8 +671,8 @@ async fn fetches_a_feed_as_the_user_asked() {
 async fn changes_how_a_feed_is_fetched() {
     let daemon = Daemon::start().await;
     let site = site(RSS).await;
-    let polled = add(&daemon, &site.url("/feed.xml")).await;
-    let path = reader::feed_path(polled.feed.id);
+    let refreshed = add(&daemon, &site.url("/feed.xml")).await;
+    let path = reader::feed_path(refreshed.feed.id);
 
     let (code, body) = request(
         daemon.socket(),
@@ -684,14 +687,20 @@ async fn changes_how_a_feed_is_fetched() {
     assert_eq!(feed.user_agent.as_deref(), Some("another reader"));
 
     // The next fetch uses what the user asked for
-    let (code, body) = request(daemon.socket(), "POST", &reader::poll_path(feed.id), None).await;
+    let (code, body) = request(
+        daemon.socket(),
+        "POST",
+        &reader::refresh_path(feed.id),
+        None,
+    )
+    .await;
     assert_eq!(code, 200, "{body}");
     assert_eq!(
-        site.agents().last().map(String::as_str),
+        site.user_agents().last().map(String::as_str),
         Some("another reader")
     );
 
-    // Sending a null returns the feed to the agent of this build
+    // Sending a null returns the feed to the user agent of this build
     let (code, body) = request(
         daemon.socket(),
         "PATCH",
@@ -704,10 +713,16 @@ async fn changes_how_a_feed_is_fetched() {
     assert_eq!(feed.user_agent, None);
     assert_eq!(feed.timeout_seconds, 90, "the timeout stays");
 
-    let (code, body) = request(daemon.socket(), "POST", &reader::poll_path(feed.id), None).await;
+    let (code, body) = request(
+        daemon.socket(),
+        "POST",
+        &reader::refresh_path(feed.id),
+        None,
+    )
+    .await;
     assert_eq!(code, 200, "{body}");
     assert_eq!(
-        site.agents().last().map(String::as_str),
+        site.user_agents().last().map(String::as_str),
         Some(DEFAULT_USER_AGENT)
     );
 }
@@ -716,13 +731,13 @@ async fn changes_how_a_feed_is_fetched() {
 async fn refuses_a_timeout_outside_the_schema() {
     let daemon = Daemon::start().await;
     let site = site(RSS).await;
-    let polled = add(&daemon, &site.url("/feed.xml")).await;
+    let refreshed = add(&daemon, &site.url("/feed.xml")).await;
 
     for timeout in [0, 601] {
         let (code, body) = request(
             daemon.socket(),
             "PATCH",
-            &reader::feed_path(polled.feed.id),
+            &reader::feed_path(refreshed.feed.id),
             Some(&format!(
                 "{}",
                 serde_json::json!({ "timeout_seconds": timeout })

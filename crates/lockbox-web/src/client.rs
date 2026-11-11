@@ -57,7 +57,7 @@ pub enum ClientError {
     Request(hyper::http::Error),
     /// The daemon did not answer in time.
     Timeout,
-    /// The daemon's location is empty, presumably because it is offline
+    /// The daemon's socket is gone, so it is presumably offline.
     Offline,
     /// The daemon answered with a non-2xx status.
     Status { status: u16, body: String },
@@ -171,7 +171,7 @@ impl DaemonClient {
         }
     }
 
-    /// Name a failure to connect for what it is when the socket is gone.
+    /// Report a missing socket as an offline daemon.
     fn offline(&self, error: ClientError) -> ClientError {
         match error {
             ClientError::Connect(_) if !self.socket.exists() => ClientError::Offline,

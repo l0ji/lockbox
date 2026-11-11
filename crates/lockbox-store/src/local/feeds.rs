@@ -1,4 +1,4 @@
-//! Feeds the reader follows, and the state of their last poll.
+//! Feeds the reader follows, and the state of their last refresh.
 
 use rusqlite::{
     OptionalExtension, Row, params, params_from_iter,
@@ -9,8 +9,8 @@ use super::{Visibility, entries, unknown};
 use crate::{Db, Error};
 
 /// Columns every feed query returns, in the order [`from_row`] reads them.
-const COLUMNS: &str = "id, url, site_url, title, kind, poll_seconds, timeout_seconds, user_agent, \
-     next_poll_at, fetched_at, etag, last_modified, last_error, visibility, disabled, \
+const COLUMNS: &str = "id, url, site_url, title, kind, refresh_seconds, timeout_seconds, user_agent, \
+     next_refresh_at, fetched_at, etag, last_modified, last_error, visibility, disabled, \
      discovered_from, created_at, updated_at";
 
 /// Seconds a fetch waits for the server when the user names no timeout.
@@ -24,10 +24,10 @@ pub struct Feed {
     pub site_url: Option<String>,
     pub title: Option<String>,
     pub kind: Kind,
-    pub poll_seconds: i64,
+    pub refresh_seconds: i64,
     pub timeout_seconds: i64,
     pub user_agent: Option<String>,
-    pub next_poll_at: Option<i64>,
+    pub next_refresh_at: Option<i64>,
     pub fetched_at: Option<i64>,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
@@ -40,7 +40,7 @@ pub struct Feed {
 }
 
 impl Feed {
-    /// Where this feed sits in the list, which is its title or its URL.
+    /// Title used in the list, falling back to the URL.
     pub fn name(&self) -> &str {
         self.title.as_deref().unwrap_or(&self.url)
     }
@@ -133,28 +133,27 @@ pub struct NewFeed {
     pub site_url: Option<String>,
     /// Title to show in the reader.
     pub title: Option<String>,
-    /// Format the fetcher should expect.
+    /// Format of the feed document.
     pub kind: Kind,
-    /// Seconds between polls.
-    pub poll_seconds: i64,
+    /// Seconds between refreshes.
+    pub refresh_seconds: i64,
     /// Seconds the server has to answer a fetch.
     pub timeout_seconds: i64,
-    /// The user agent that a fetch uses when getting data.
-    /// Defaults to "lockbox/{version}" when empty.
+    /// User agent a fetch sends, or the node's own when it is missing.
     pub user_agent: Option<String>,
     /// How the feed was found.
     pub discovered_from: Source,
 }
 
 impl NewFeed {
-    /// A feed the user added themselves, polled every hour.
+    /// A feed the user added themselves, refreshed every hour.
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
             site_url: None,
             title: None,
             kind: Kind::Rss,
-            poll_seconds: 3600,
+            refresh_seconds: 3600,
             timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             user_agent: None,
             discovered_from: Source::User,
@@ -164,7 +163,7 @@ impl NewFeed {
 
 /// What one successful fetch of a feed found.
 #[derive(Debug, Clone)]
-pub struct Poll {
+pub struct Refresh {
     /// When the feed was fetched.
     pub fetched_at: i64,
     /// Validator to send on the next fetch.
@@ -184,18 +183,17 @@ pub struct Change {
     pub site_url: Option<String>,
     /// Title to show in the reader.
     pub title: Option<String>,
-    /// Format to parse it as.
+    /// Format of the feed document.
     pub kind: Option<Kind>,
-    /// Seconds between polls.
-    pub poll_seconds: Option<i64>,
+    /// Seconds between refreshes.
+    pub refresh_seconds: Option<i64>,
     /// Seconds the server has to answer a fetch.
     pub timeout_seconds: Option<i64>,
-    /// Who a fetch says it is from. A `None` passed to this property
-    /// returns to the default.
+    /// User agent a fetch sends, where `Some(None)` returns to the default.
     pub user_agent: Option<Option<String>>,
     /// Whether the feed is published.
     pub visibility: Option<Visibility>,
-    /// Whether polling is paused.
+    /// Whether refreshing is paused.
     pub disabled: Option<bool>,
 }
 
@@ -204,7 +202,7 @@ pub async fn add(db: &Db, feed: NewFeed, now: i64) -> Result<Feed, Error> {
     db.call(move |connection| {
         let transaction = connection.transaction()?;
         transaction.execute(
-            "INSERT INTO feed (url, site_url, title, kind, poll_seconds, timeout_seconds,
+            "INSERT INTO feed (url, site_url, title, kind, refresh_seconds, timeout_seconds,
                                user_agent, discovered_from, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
              ON CONFLICT (url) DO NOTHING",
@@ -213,7 +211,7 @@ pub async fn add(db: &Db, feed: NewFeed, now: i64) -> Result<Feed, Error> {
                 feed.site_url,
                 feed.title,
                 feed.kind,
-                feed.poll_seconds,
+                feed.refresh_seconds,
                 feed.timeout_seconds,
                 feed.user_agent,
                 feed.discovered_from,
@@ -238,7 +236,7 @@ pub async fn get(db: &Db, id: i64) -> Result<Option<Feed>, Error> {
     .await
 }
 
-/// Position in the feed list which can be used to get the next page.
+/// Position in the feed list from which the next page starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cursor {
     /// Title of the last feed on the page, or its URL when it has none.
@@ -247,7 +245,7 @@ pub struct Cursor {
     pub id: i64,
 }
 
-/// A list of feeds used for pagination.
+/// One page of feeds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
     pub items: Vec<Feed>,
@@ -255,7 +253,7 @@ pub struct Page {
     pub next: Option<Cursor>,
 }
 
-/// List the feeds, by title with the URL standing in for a missing one.
+/// List feeds by title, with the URL standing in for a missing one.
 ///
 /// `limit` is however many the caller wants; the store sets no maximum.
 pub async fn list(db: &Db, after: Option<Cursor>, limit: usize) -> Result<Page, Error> {
@@ -303,37 +301,37 @@ pub async fn list(db: &Db, after: Option<Cursor>, limit: usize) -> Result<Page, 
     .await
 }
 
-/// Record a successful poll and store the entries the feed did not have yet.
+/// Record a successful refresh and store the entries the feed did not have yet.
 ///
 /// Returns how many entries were new.
-pub async fn record_poll(db: &Db, id: i64, poll: Poll) -> Result<usize, Error> {
+pub async fn record_refresh(db: &Db, id: i64, refresh: Refresh) -> Result<usize, Error> {
     db.call(move |connection| {
         let transaction = connection.transaction()?;
         let changed = transaction.execute(
             "UPDATE feed
              SET fetched_at = ?1, etag = ?2, last_modified = ?3,
-                 next_poll_at = ?1 + poll_seconds, last_error = NULL, updated_at = ?1
+                 next_refresh_at = ?1 + refresh_seconds, last_error = NULL, updated_at = ?1
              WHERE id = ?4",
-            params![poll.fetched_at, poll.etag, poll.last_modified, id],
+            params![refresh.fetched_at, refresh.etag, refresh.last_modified, id],
         )?;
         if changed == 0 {
             return Err(Error::NotFound);
         }
 
-        let inserted = entries::insert(&transaction, id, &poll.entries, poll.fetched_at)?;
+        let inserted = entries::insert(&transaction, id, &refresh.entries, refresh.fetched_at)?;
         transaction.commit()?;
         Ok(inserted)
     })
     .await
 }
 
-/// Record a failed poll, which leaves the validators and the entries alone.
+/// Record a failed refresh, which leaves the validators and the entries alone.
 pub async fn record_failure(db: &Db, id: i64, error: &str, now: i64) -> Result<(), Error> {
     let error = error.to_owned();
     db.call(move |connection| {
         let changed = connection.execute(
             "UPDATE feed
-             SET fetched_at = ?1, next_poll_at = ?1 + poll_seconds, last_error = ?2,
+             SET fetched_at = ?1, next_refresh_at = ?1 + refresh_seconds, last_error = ?2,
                  updated_at = ?1
              WHERE id = ?3",
             params![now, error, id],
@@ -348,8 +346,8 @@ pub async fn record_failure(db: &Db, id: i64, error: &str, now: i64) -> Result<(
 
 /// Change the settings of one feed and return it.
 ///
-/// A shorter or longer interval moves a poll that was already scheduled to
-/// `now + poll_seconds`.
+/// A shorter or longer interval moves a refresh that was already scheduled to
+/// `now + refresh_seconds`.
 pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Feed, Error> {
     db.call(move |connection| {
         let mut sets = vec!["updated_at = ?"];
@@ -371,10 +369,12 @@ pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Feed, 
             sets.push("kind = ?");
             args.push(Value::Text(kind.text().to_owned()));
         }
-        if let Some(seconds) = change.poll_seconds {
-            sets.push("poll_seconds = ?");
+        if let Some(seconds) = change.refresh_seconds {
+            sets.push("refresh_seconds = ?");
             args.push(Value::Integer(seconds));
-            sets.push("next_poll_at = CASE WHEN next_poll_at IS NULL THEN NULL ELSE ? + ? END");
+            sets.push(
+                "next_refresh_at = CASE WHEN next_refresh_at IS NULL THEN NULL ELSE ? + ? END",
+            );
             args.push(Value::Integer(now));
             args.push(Value::Integer(seconds));
         }
@@ -386,10 +386,10 @@ pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Feed, 
             sets.push("timeout_seconds = ?");
             args.push(Value::Integer(seconds));
         }
-        if let Some(agent) = change.user_agent {
+        if let Some(user_agent) = change.user_agent {
             sets.push("user_agent = ?");
-            args.push(match agent {
-                Some(agent) => Value::Text(agent),
+            args.push(match user_agent {
+                Some(user_agent) => Value::Text(user_agent),
                 None => Value::Null,
             });
         }
@@ -435,10 +435,10 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Feed> {
         site_url: row.get(2)?,
         title: row.get(3)?,
         kind: row.get(4)?,
-        poll_seconds: row.get(5)?,
+        refresh_seconds: row.get(5)?,
         timeout_seconds: row.get(6)?,
         user_agent: row.get(7)?,
-        next_poll_at: row.get(8)?,
+        next_refresh_at: row.get(8)?,
         fetched_at: row.get(9)?,
         etag: row.get(10)?,
         last_modified: row.get(11)?,

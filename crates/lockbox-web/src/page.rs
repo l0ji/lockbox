@@ -1,4 +1,4 @@
-//! The pages served by the web client without needing data from the daemon.
+//! The node and error pages.
 
 use askama::Template;
 use lockbox_proto::api::node::Status;

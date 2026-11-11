@@ -29,7 +29,7 @@ pub struct EntrySummary {
     pub archived_at: Option<i64>,
 }
 
-/// One entry with its metadata, body and whether it was truncated.
+/// One entry with its body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     /// Everything a list shows.
@@ -72,7 +72,7 @@ pub struct Page {
     pub next: Option<Cursor>,
 }
 
-/// An entry as a poll found it.
+/// An entry as a refresh found it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewEntry {
     /// Identifier the feed gives the item, or its URL when it has none.
@@ -139,7 +139,7 @@ pub async fn mark_archived(db: &Db, id: i64, at: Option<i64>) -> Result<(), Erro
     mark(db, Mark::Archived, id, at).await
 }
 
-/// Store the entries a poll found, skipping the ones the feed already had.
+/// Store the entries a refresh found, skipping the ones the feed already had.
 ///
 /// Returns how many were new.
 pub(super) fn insert(
@@ -290,7 +290,7 @@ fn page(
     Ok(Page { items, next })
 }
 
-/// Read one detailed row.
+/// Read one entry with its body.
 fn detail(row: &Row<'_>) -> rusqlite::Result<Entry> {
     Ok(Entry {
         summary: from_row(row)?,
@@ -299,7 +299,7 @@ fn detail(row: &Row<'_>) -> rusqlite::Result<Entry> {
     })
 }
 
-/// Read one list row.
+/// Read one entry of a list.
 fn from_row(row: &Row<'_>) -> rusqlite::Result<EntrySummary> {
     Ok(EntrySummary {
         id: row.get(0)?,

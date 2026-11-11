@@ -1,7 +1,7 @@
-//! Opaque cursors for set pagination.
+//! Opaque cursors for list pagination.
 //!
-//! A node can return a cusor that contains the ID of the last item in a list
-//! as well as the sorting order of the list, for efficient pagination.
+//! A cursor holds the key of the last row on a page and the sort it was made
+//! for, so the next page starts where the last one ended.
 
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +39,7 @@ impl Cursor {
         Ok(base64::encode(&json))
     }
 
-    /// Decode a cursor into a proper `Cursor` object.
+    /// Read a cursor, which must have been made for `sort`.
     pub fn decode(text: &str, sort: &str) -> Result<Self, ApiError> {
         let json = base64::decode(text)
             .ok_or_else(|| ApiError::invalid(format!("cursor {text} is not base64url")))?;

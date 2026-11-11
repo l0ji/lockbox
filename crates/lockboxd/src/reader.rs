@@ -14,23 +14,23 @@ use lockbox_store::{
     Db, Error as StoreError,
     local::{
         entries,
-        feeds::{self, DEFAULT_TIMEOUT_SECONDS, NewFeed, Poll},
+        feeds::{self, DEFAULT_TIMEOUT_SECONDS, NewFeed, Refresh},
     },
 };
 
-/// What the result of the polling of a feed did.
-pub struct Polled {
-    /// The feed after the poll.
+/// What a refresh of one feed found.
+pub struct Refreshed {
+    /// The feed after the refresh.
     pub feed: feeds::Feed,
-    /// Entries which the poll added.
+    /// Entries which the refresh added.
     pub new_entries: usize,
 }
 
 /// Fetch one feed and store what it brought.
 ///
-/// A failure is written into the feed's row, so that the reader can show it
-/// until the next poll succeeds.
-pub async fn poll(db: &Db, fetcher: &Fetcher, feed: feeds::Feed) -> Result<Polled, Error> {
+/// A failure is written into the feed's row, where the reader shows it until
+/// the next refresh succeeds.
+pub async fn refresh(db: &Db, fetcher: &Fetcher, feed: feeds::Feed) -> Result<Refreshed, Error> {
     let request = fetch_request(
         &feed.url,
         feed.etag.as_deref(),
@@ -66,10 +66,10 @@ pub async fn poll(db: &Db, fetcher: &Fetcher, feed: feeds::Feed) -> Result<Polle
         }
     };
 
-    let new_entries = feeds::record_poll(
+    let new_entries = feeds::record_refresh(
         db,
         feed.id,
-        Poll {
+        Refresh {
             fetched_at: now(),
             etag: fetched.etag,
             last_modified: fetched.last_modified,
@@ -77,15 +77,14 @@ pub async fn poll(db: &Db, fetcher: &Fetcher, feed: feeds::Feed) -> Result<Polle
         },
     )
     .await?;
-    Ok(Polled {
+    Ok(Refreshed {
         feed: stored(db, feed.id).await?,
         new_entries,
     })
 }
 
-/// Fetch the address a user gave, discover the feed which it advertises, and
-/// store the feed together with the items it brought.
-pub async fn add(db: &Db, fetcher: &Fetcher, wanted: reader::NewFeed) -> Result<Polled, Error> {
+/// Add the feed a user asked for, storing it with the items it brought.
+pub async fn add(db: &Db, fetcher: &Fetcher, wanted: reader::NewFeed) -> Result<Refreshed, Error> {
     let timeout_seconds = wanted.timeout_seconds.unwrap_or(DEFAULT_TIMEOUT_SECONDS);
     let (fetched, parsed) = resolve(
         fetcher,
@@ -101,15 +100,15 @@ pub async fn add(db: &Db, fetcher: &Fetcher, wanted: reader::NewFeed) -> Result<
     request.kind = kind(parsed.kind);
     request.timeout_seconds = timeout_seconds;
     request.user_agent = wanted.user_agent;
-    if let Some(seconds) = wanted.poll_seconds {
-        request.poll_seconds = seconds;
+    if let Some(seconds) = wanted.refresh_seconds {
+        request.refresh_seconds = seconds;
     }
     let feed = feeds::add(db, request, now()).await?;
 
-    let new_entries = feeds::record_poll(
+    let new_entries = feeds::record_refresh(
         db,
         feed.id,
-        Poll {
+        Refresh {
             fetched_at: now(),
             etag: fetched.etag,
             last_modified: fetched.last_modified,
@@ -117,7 +116,7 @@ pub async fn add(db: &Db, fetcher: &Fetcher, wanted: reader::NewFeed) -> Result<
         },
     )
     .await?;
-    Ok(Polled {
+    Ok(Refreshed {
         feed: stored(db, feed.id).await?,
         new_entries,
     })
@@ -162,7 +161,7 @@ async fn resolve(
     Ok((fetched, parsed))
 }
 
-/// Write a failed poll into the feed's row, which the reader can show.
+/// Write a failed refresh into the feed's row, which the reader can show.
 async fn fail(db: &Db, feed: &feeds::Feed, error: &Error) -> Result<(), Error> {
     feeds::record_failure(db, feed.id, &error.to_string(), now()).await?;
     Ok(())
@@ -176,7 +175,7 @@ async fn stored(db: &Db, id: i64) -> Result<feeds::Feed, Error> {
     }
 }
 
-/// A fetch which waits as long as the feed allows and says who it is.
+/// The request for one fetch, with the feed's timeout and user agent.
 fn fetch_request<'a>(
     url: &'a str,
     etag: Option<&'a str>,
@@ -229,7 +228,7 @@ pub fn now() -> i64 {
         .unwrap_or_default()
 }
 
-/// Why a feed could not be polled.
+/// Why a feed could not be refreshed.
 #[derive(Debug)]
 pub enum Error {
     /// The document could not be fetched.

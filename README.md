@@ -40,13 +40,13 @@ cargo run -p lockbox-web      # starts a web server on http://127.0.0.1:8080/
 ### RSS Reader
 
 | Route | Reply |
-| -- | -- |
+| --- | --- |
 | `GET /api/reader/feeds` | the feeds the reader follows |
 | `POST /api/reader/feeds` | add a feed by its address, or by a page which advertises one |
-| `GET /api/reader/feeds/{id}` | one feed with the state of its last poll |
+| `GET /api/reader/feeds/{id}` | one feed with the state of its last refresh |
 | `PATCH /api/reader/feeds/{id}` | change the settings of one feed |
 | `DELETE /api/reader/feeds/{id}` | unsubscribe, dropping the entries it brought |
-| `POST /api/reader/feeds/{id}/poll` | fetch the feed now |
+| `POST /api/reader/feeds/{id}/refresh` | fetch the feed now |
 | `GET /api/reader/entries` | the reading list, by feed, read state, star and text |
 | `GET /api/reader/entries/{id}` | one entry with its body |
 | `PATCH /api/reader/entries/{id}` | mark the entry read, starred or archived |

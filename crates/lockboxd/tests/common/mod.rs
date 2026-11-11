@@ -186,7 +186,7 @@ pub fn json<T: DeserializeOwned>(body: &str) -> T {
 pub struct Site {
     addr: SocketAddr,
     task: JoinHandle<()>,
-    agents: Arc<Mutex<Vec<String>>>,
+    user_agents: Arc<Mutex<Vec<String>>>,
 }
 
 impl Site {
@@ -197,15 +197,19 @@ impl Site {
             .expect("bind the stub site");
         let addr = listener.local_addr().expect("stub site address");
 
-        let agents = Arc::new(Mutex::new(Vec::new()));
+        let user_agents = Arc::new(Mutex::new(Vec::new()));
         let app = app.layer(middleware::from_fn_with_state(
-            Arc::clone(&agents),
-            record_agent,
+            Arc::clone(&user_agents),
+            record_user_agent,
         ));
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
-        Self { addr, task, agents }
+        Self {
+            addr,
+            task,
+            user_agents,
+        }
     }
 
     /// Address of a path on the stub site.
@@ -213,31 +217,31 @@ impl Site {
         format!("http://{}{path}", self.addr)
     }
 
-    /// The agent of every request which the stub site was asked, in order.
-    pub fn agents(&self) -> Vec<String> {
-        self.agents.lock().expect("agents").clone()
+    /// User agents of the requests the stub site received, in order.
+    pub fn user_agents(&self) -> Vec<String> {
+        self.user_agents.lock().expect("user agents").clone()
     }
 }
 
 impl Drop for Site {
-    /// Stop answering, so that a poll of the feed it served fails.
+    /// Stop answering, so that a refresh of the feed it served fails.
     fn drop(&mut self) {
         self.task.abort();
     }
 }
 
-/// Remember who asked for a document before serving it.
-async fn record_agent(
-    State(agents): State<Arc<Mutex<Vec<String>>>>,
+/// Record the user agent of each request before serving it.
+async fn record_user_agent(
+    State(user_agents): State<Arc<Mutex<Vec<String>>>>,
     request: Request,
     next: Next,
 ) -> Response {
-    let agent = request
+    let user_agent = request
         .headers()
         .get("user-agent")
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default()
         .to_owned();
-    agents.lock().expect("agents").push(agent);
+    user_agents.lock().expect("user agents").push(user_agent);
     next.run(request).await
 }

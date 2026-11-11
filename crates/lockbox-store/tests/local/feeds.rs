@@ -1,13 +1,13 @@
 //! Tests for [`lockbox_store::local::feeds`].
 
 use crate::common::Temp;
-use crate::fixtures::{feed, item, list, open, poll, titles};
+use crate::fixtures::{feed, item, list, open, refresh, titles};
 use lockbox_store::{
     Error,
     local::{
         Visibility,
         entries::{self, Filter},
-        feeds::{self, Change, DEFAULT_TIMEOUT_SECONDS, Kind, NewFeed, Poll, Source},
+        feeds::{self, Change, DEFAULT_TIMEOUT_SECONDS, Kind, NewFeed, Refresh, Source},
     },
 };
 
@@ -32,10 +32,10 @@ async fn adds_a_feed() {
     assert_eq!(stored.site_url.as_deref(), Some("https://example.com/"));
     assert_eq!(stored.title.as_deref(), Some("Example"));
     assert_eq!(stored.kind, Kind::Rss);
-    assert_eq!(stored.poll_seconds, 3600);
+    assert_eq!(stored.refresh_seconds, 3600);
     assert_eq!(stored.timeout_seconds, DEFAULT_TIMEOUT_SECONDS);
     assert_eq!(stored.user_agent, None);
-    assert_eq!(stored.next_poll_at, None);
+    assert_eq!(stored.next_refresh_at, None);
     assert_eq!(stored.fetched_at, None);
     assert_eq!(stored.visibility, Visibility::Private);
     assert!(!stored.disabled);
@@ -87,15 +87,15 @@ async fn adding_a_known_feed_returns_it() {
 }
 
 #[tokio::test]
-async fn records_a_poll() {
-    let temp = Temp::new("poll");
+async fn records_a_refresh() {
+    let temp = Temp::new("refresh");
     let db = open(&temp);
     let feed_id = feed(&db, "https://example.com/feed", 100).await;
 
-    let inserted = feeds::record_poll(
+    let inserted = feeds::record_refresh(
         &db,
         feed_id,
-        Poll {
+        Refresh {
             fetched_at: 200,
             etag: Some("\"abc\"".to_owned()),
             last_modified: Some("Mon, 01 Jan 2024 00:00:00 GMT".to_owned()),
@@ -103,7 +103,7 @@ async fn records_a_poll() {
         },
     )
     .await
-    .expect("record poll");
+    .expect("record refresh");
 
     assert_eq!(inserted, 2);
     let stored = feeds::get(&db, feed_id)
@@ -116,7 +116,7 @@ async fn records_a_poll() {
         stored.last_modified.as_deref(),
         Some("Mon, 01 Jan 2024 00:00:00 GMT")
     );
-    assert_eq!(stored.next_poll_at, Some(200 + 3600));
+    assert_eq!(stored.next_refresh_at, Some(200 + 3600));
     assert_eq!(stored.last_error, None);
     assert_eq!(stored.updated_at, 200);
 
@@ -132,19 +132,19 @@ async fn records_a_poll() {
 }
 
 #[tokio::test]
-async fn a_second_poll_skips_known_entries() {
+async fn a_second_refresh_skips_known_entries() {
     let temp = Temp::new("known-items");
     let db = open(&temp);
     let feed_id = feed(&db, "https://example.com/feed", 100).await;
 
-    let first = poll(
+    let first = refresh(
         &db,
         feed_id,
         200,
         vec![item("a", Some(150)), item("b", Some(150))],
     )
     .await;
-    let second = poll(
+    let second = refresh(
         &db,
         feed_id,
         300,
@@ -163,14 +163,14 @@ async fn a_second_poll_skips_known_entries() {
 }
 
 #[tokio::test]
-async fn records_a_failed_poll() {
-    let temp = Temp::new("failed-poll");
+async fn records_a_failed_refresh() {
+    let temp = Temp::new("failed-refresh");
     let db = open(&temp);
     let feed_id = feed(&db, "https://example.com/feed", 100).await;
-    feeds::record_poll(
+    feeds::record_refresh(
         &db,
         feed_id,
-        Poll {
+        Refresh {
             fetched_at: 200,
             etag: Some("\"abc\"".to_owned()),
             last_modified: None,
@@ -178,7 +178,7 @@ async fn records_a_failed_poll() {
         },
     )
     .await
-    .expect("record poll");
+    .expect("record refresh");
 
     feeds::record_failure(&db, feed_id, "connection refused", 500)
         .await
@@ -189,14 +189,14 @@ async fn records_a_failed_poll() {
         .expect("read feed")
         .expect("feed exists");
     assert_eq!(stored.fetched_at, Some(500));
-    assert_eq!(stored.next_poll_at, Some(500 + 3600));
+    assert_eq!(stored.next_refresh_at, Some(500 + 3600));
     assert_eq!(stored.last_error.as_deref(), Some("connection refused"));
     assert_eq!(stored.etag.as_deref(), Some("\"abc\""));
     assert_eq!(stored.updated_at, 500);
     assert_eq!(list(&db, Filter::default()).await, ["Entry a"]);
 
     // A later success clears the error and replaces the validators
-    poll(&db, feed_id, 600, vec![]).await;
+    refresh(&db, feed_id, 600, vec![]).await;
     let stored = feeds::get(&db, feed_id)
         .await
         .expect("read feed")
@@ -207,17 +207,17 @@ async fn records_a_failed_poll() {
 }
 
 #[tokio::test]
-async fn a_poll_of_a_missing_feed_fails() {
+async fn a_refresh_of_a_missing_feed_fails() {
     let temp = Temp::new("missing-feed");
     let db = open(&temp);
 
-    let poll = Poll {
+    let refresh = Refresh {
         fetched_at: 100,
         etag: None,
         last_modified: None,
         entries: vec![item("a", None)],
     };
-    let error = feeds::record_poll(&db, 999, poll)
+    let error = feeds::record_refresh(&db, 999, refresh)
         .await
         .expect_err("no such feed");
     assert!(matches!(error, Error::NotFound), "{error}");
@@ -234,7 +234,7 @@ async fn changes_feed_settings() {
     let temp = Temp::new("settings");
     let db = open(&temp);
     let feed_id = feed(&db, "https://example.com/feed", 10).await;
-    poll(&db, feed_id, 100, vec![]).await;
+    refresh(&db, feed_id, 100, vec![]).await;
 
     let changed = feeds::update(
         &db,
@@ -244,7 +244,7 @@ async fn changes_feed_settings() {
             site_url: Some("https://example.com/".to_owned()),
             title: Some("Example".to_owned()),
             kind: Some(Kind::Atom),
-            poll_seconds: Some(600),
+            refresh_seconds: Some(600),
             timeout_seconds: Some(5),
             user_agent: Some(Some("lockbox-test/1".to_owned())),
             visibility: Some(Visibility::Public),
@@ -259,10 +259,14 @@ async fn changes_feed_settings() {
     assert_eq!(changed.site_url.as_deref(), Some("https://example.com/"));
     assert_eq!(changed.title.as_deref(), Some("Example"));
     assert_eq!(changed.kind, Kind::Atom);
-    assert_eq!(changed.poll_seconds, 600);
+    assert_eq!(changed.refresh_seconds, 600);
     assert_eq!(changed.timeout_seconds, 5);
     assert_eq!(changed.user_agent.as_deref(), Some("lockbox-test/1"));
-    assert_eq!(changed.next_poll_at, Some(200 + 600), "the poll moves");
+    assert_eq!(
+        changed.next_refresh_at,
+        Some(200 + 600),
+        "the refresh moves"
+    );
     assert_eq!(changed.visibility, Visibility::Public);
     assert!(changed.disabled);
     assert_eq!(changed.updated_at, 200);
@@ -281,29 +285,29 @@ async fn changes_feed_settings() {
     .expect("rename");
     assert_eq!(changed.title.as_deref(), Some("Renamed"));
     assert_eq!(changed.url, "https://example.com/new-feed");
-    assert_eq!(changed.poll_seconds, 600);
+    assert_eq!(changed.refresh_seconds, 600);
 
-    // A feed that was never polled has no next poll to move
+    // A feed that was never refreshed has no next refresh to move
     let fresh = feed(&db, "https://fresh.example/feed", 10).await;
     let changed = feeds::update(
         &db,
         fresh,
         Change {
-            poll_seconds: Some(300),
+            refresh_seconds: Some(300),
             ..Change::default()
         },
         50,
     )
     .await
     .expect("set interval");
-    assert_eq!(changed.next_poll_at, None);
+    assert_eq!(changed.next_refresh_at, None);
 
     // The schema keeps the interval at a minute or more
     let error = feeds::update(
         &db,
         feed_id,
         Change {
-            poll_seconds: Some(10),
+            refresh_seconds: Some(10),
             ..Change::default()
         },
         400,
@@ -311,7 +315,7 @@ async fn changes_feed_settings() {
     .await
     .expect_err("below a minute");
     assert!(matches!(error, Error::Invalid(_)), "{error}");
-    assert!(error.to_string().contains("poll_seconds"), "{error}");
+    assert!(error.to_string().contains("refresh_seconds"), "{error}");
 
     let error = feeds::update(&db, 9_999, Change::default(), 400)
         .await
@@ -378,8 +382,8 @@ async fn removes_a_feed_and_its_entries() {
     let db = open(&temp);
     let removed = feed(&db, "https://example.com/feed", 10).await;
     let kept = feed(&db, "https://example.com/other", 10).await;
-    poll(&db, removed, 100, vec![item("a", Some(90))]).await;
-    poll(&db, kept, 100, vec![item("b", Some(90))]).await;
+    refresh(&db, removed, 100, vec![item("a", Some(90))]).await;
+    refresh(&db, kept, 100, vec![item("b", Some(90))]).await;
 
     feeds::delete(&db, removed).await.expect("remove feed");
     assert_eq!(feeds::get(&db, removed).await.expect("read feed"), None);
@@ -403,7 +407,7 @@ async fn changes_how_a_feed_is_fetched() {
         id,
         Change {
             timeout_seconds: Some(90),
-            user_agent: Some(Some("Penny's reader".to_owned())),
+            user_agent: Some(Some("Jane's reader".to_owned())),
             ..Change::default()
         },
         20,
@@ -411,9 +415,9 @@ async fn changes_how_a_feed_is_fetched() {
     .await
     .expect("change the fetch settings");
     assert_eq!(changed.timeout_seconds, 90);
-    assert_eq!(changed.user_agent.as_deref(), Some("Penny's reader"));
+    assert_eq!(changed.user_agent.as_deref(), Some("Jane's reader"));
 
-    // An agent sent as a null inside returns the feed to the default one
+    // A user agent sent as a null returns the feed to the default one
     let cleared = feeds::update(
         &db,
         id,
@@ -424,7 +428,7 @@ async fn changes_how_a_feed_is_fetched() {
         30,
     )
     .await
-    .expect("clear the agent");
+    .expect("clear the user agent");
     assert_eq!(cleared.user_agent, None);
     assert_eq!(cleared.timeout_seconds, 90, "the timeout is left alone");
 
@@ -463,6 +467,6 @@ async fn the_schema_defaults_the_fetch_settings() {
     let stored = feeds::get(&db, 1).await.expect("read feed").expect("feed");
     assert_eq!(stored.timeout_seconds, DEFAULT_TIMEOUT_SECONDS);
     assert_eq!(stored.user_agent, None);
-    assert_eq!(stored.poll_seconds, 3600);
+    assert_eq!(stored.refresh_seconds, 3600);
     db.close().await.expect("close database");
 }

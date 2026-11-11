@@ -16,7 +16,7 @@ pub struct Status {
     pub protocol_version: u16,
     /// Version of the software that runs the node.
     pub software_version: String,
-    /// Public key of the node's account
+    /// Public key of the node's account.
     pub public_key: String,
     /// Public key of the node's account, as hex.
     pub node_id: String,

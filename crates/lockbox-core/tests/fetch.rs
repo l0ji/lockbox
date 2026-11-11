@@ -45,14 +45,14 @@ async fn asks_for_a_document_it_already_has() {
     let site = Site::start(Reply::document(DOCUMENT).with_etag("\"v1\"")).await;
     let fetcher = Fetcher::new().expect("build the client");
     let url = site.url("/feed.xml");
-    let agent = "lockbox-test/1";
+    let user_agent = "lockbox-test/1";
     let first = fetcher
         .fetch(&Request {
             url: &url,
             etag: None,
             last_modified: None,
             timeout: Duration::from_secs(5),
-            user_agent: agent,
+            user_agent,
         })
         .await
         .expect("fetch the document");
@@ -63,7 +63,7 @@ async fn asks_for_a_document_it_already_has() {
             etag: first.etag.as_deref(),
             last_modified: first.last_modified.as_deref(),
             timeout: Duration::from_secs(5),
-            user_agent: agent,
+            user_agent,
         })
         .await
         .expect("fetch the document again");

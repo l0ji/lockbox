@@ -14,8 +14,8 @@ pub fn feed_path(id: i64) -> String {
 }
 
 /// Route which fetches one feed now.
-pub fn poll_path(id: i64) -> String {
-    format!("{FEEDS_PATH}/{id}/poll")
+pub fn refresh_path(id: i64) -> String {
+    format!("{FEEDS_PATH}/{id}/refresh")
 }
 
 /// Route which lists every entry.
@@ -26,7 +26,7 @@ pub fn entry_path(id: i64) -> String {
     format!("{ENTRIES_PATH}/{id}")
 }
 
-/// Who a fetch of a feed says it is, unless the user names another agent.
+/// User agent a fetch sends when the feed names none.
 pub const DEFAULT_USER_AGENT: &str = concat!("lockbox/", env!("CARGO_PKG_VERSION"));
 
 /// Sort which the feed list's cursors are made for.
@@ -70,21 +70,21 @@ pub struct Feed {
     pub title: Option<String>,
     /// Format of the document.
     pub kind: Kind,
-    /// Seconds between polls.
-    pub poll_seconds: i64,
+    /// Seconds between refreshes.
+    pub refresh_seconds: i64,
     /// Seconds the server has to answer a fetch.
     pub timeout_seconds: i64,
-    /// Who a fetch says it is, or [`DEFAULT_USER_AGENT`] when it is empty.
+    /// User agent a fetch sends, or [`DEFAULT_USER_AGENT`] when it is missing.
     pub user_agent: Option<String>,
-    /// When the next poll is due.
-    pub next_poll_at: Option<i64>,
+    /// When the next refresh is due.
+    pub next_refresh_at: Option<i64>,
     /// When the feed was last fetched.
     pub fetched_at: Option<i64>,
-    /// Why the last poll failed.
+    /// Why the last refresh failed.
     pub last_error: Option<String>,
     /// Whether the feed is published.
     pub visibility: Visibility,
-    /// Whether polling is paused.
+    /// Whether refreshing is paused.
     pub disabled: bool,
     /// When the feed was added.
     pub created_at: i64,
@@ -99,11 +99,11 @@ pub struct NewFeed {
     pub url: String,
     /// Title to show instead of the document's own.
     pub title: Option<String>,
-    /// Seconds between polls.
-    pub poll_seconds: Option<i64>,
+    /// Seconds between refreshes.
+    pub refresh_seconds: Option<i64>,
     /// Seconds the server has to answer a fetch, which the node defaults.
     pub timeout_seconds: Option<i64>,
-    /// Who a fetch says it is.
+    /// User agent the first fetch sends, or [`DEFAULT_USER_AGENT`] when it is missing.
     pub user_agent: Option<String>,
 }
 
@@ -121,25 +121,25 @@ pub struct FeedChange {
     pub title: Option<String>,
     /// Format to parse the document as.
     pub kind: Option<Kind>,
-    /// Seconds between polls.
-    pub poll_seconds: Option<i64>,
+    /// Seconds between refreshes.
+    pub refresh_seconds: Option<i64>,
     /// Seconds the server has to answer a fetch.
     pub timeout_seconds: Option<i64>,
-    /// Who a fetch says it is, which a `null` returns to the default agent.
+    /// User agent a fetch sends, where a `null` returns to the default.
     #[serde(default, deserialize_with = "nullable")]
     pub user_agent: Option<Option<String>>,
     /// Whether the feed is published.
     pub visibility: Option<Visibility>,
-    /// Whether polling is paused.
+    /// Whether refreshing is paused.
     pub disabled: Option<bool>,
 }
 
-/// What one poll of a feed found.
+/// What one refresh of a feed found.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Polled {
-    /// The feed after the poll.
+pub struct Refreshed {
+    /// The feed after the refresh.
     pub feed: Feed,
-    /// Entries which the poll added.
+    /// Entries which the refresh added.
     pub new_entries: usize,
 }
 

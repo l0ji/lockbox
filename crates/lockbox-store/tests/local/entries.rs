@@ -1,7 +1,7 @@
 //! Tests for [`lockbox_store::local::entries`].
 
 use crate::common::Temp;
-use crate::fixtures::{feed, item, list, open, poll, titles};
+use crate::fixtures::{feed, item, list, open, refresh, titles};
 use lockbox_store::{
     Db, Error,
     local::entries::{self, Filter},
@@ -15,7 +15,7 @@ async fn pages_through_the_reading_list() {
     let items = (1..=5)
         .map(|number| item(&number.to_string(), Some(number * 10)))
         .collect();
-    poll(&db, feed_id, 100, items).await;
+    refresh(&db, feed_id, 100, items).await;
 
     let mut seen = Vec::new();
     let mut cursor = None;
@@ -48,7 +48,7 @@ async fn the_cursor_survives_inserts_and_deletes() {
     let items = (1..=5)
         .map(|number| item(&number.to_string(), Some(number * 10)))
         .collect();
-    poll(&db, feed_id, 100, items).await;
+    refresh(&db, feed_id, 100, items).await;
 
     let first = entries::list(&db, &Filter::default(), None, 2)
         .await
@@ -57,7 +57,7 @@ async fn the_cursor_survives_inserts_and_deletes() {
     let cursor = first.next.expect("next page");
 
     // A newer item lands above the cursor, a missing one was never served
-    poll(
+    refresh(
         &db,
         feed_id,
         200,
@@ -82,7 +82,7 @@ async fn filters_by_feed_and_read_state() {
     let db = open(&temp);
     let first = feed(&db, "https://one.example/feed", 10).await;
     let second = feed(&db, "https://two.example/feed", 10).await;
-    poll(
+    refresh(
         &db,
         first,
         100,
@@ -93,7 +93,7 @@ async fn filters_by_feed_and_read_state() {
         ],
     )
     .await;
-    poll(&db, second, 100, vec![item("d", Some(40))]).await;
+    refresh(&db, second, 100, vec![item("d", Some(40))]).await;
 
     entries::mark_read(&db, id(&db, "b").await, Some(150))
         .await
@@ -152,7 +152,7 @@ async fn filters_by_star_and_archived() {
     let temp = Temp::new("filter-state");
     let db = open(&temp);
     let feed_id = feed(&db, "https://example.com/feed", 10).await;
-    poll(
+    refresh(
         &db,
         feed_id,
         100,
@@ -238,7 +238,7 @@ async fn finds_entries_by_text() {
     let mut stew = item("b", Some(20));
     stew.title = "A slow stew".to_owned();
     stew.summary = Some("Browning the meat first".to_owned());
-    poll(&db, feed_id, 100, vec![runtime, stew]).await;
+    refresh(&db, feed_id, 100, vec![runtime, stew]).await;
 
     let query = |text: &str| Filter {
         query: Some(text.to_owned()),
@@ -266,7 +266,7 @@ async fn the_search_index_follows_edits_and_deletes() {
     let feed_id = feed(&db, "https://example.com/feed", 10).await;
     let mut runtime = item("a", Some(10));
     runtime.title = "An async runtime".to_owned();
-    poll(&db, feed_id, 100, vec![runtime]).await;
+    refresh(&db, feed_id, 100, vec![runtime]).await;
 
     let entry_id = entries::list(&db, &Filter::default(), None, 10)
         .await
@@ -305,7 +305,7 @@ async fn marks_reader_state() {
     let temp = Temp::new("marks");
     let db = open(&temp);
     let feed_id = feed(&db, "https://example.com/feed", 10).await;
-    poll(&db, feed_id, 100, vec![item("a", Some(10))]).await;
+    refresh(&db, feed_id, 100, vec![item("a", Some(10))]).await;
     let entry_id = id(&db, "a").await;
 
     entries::mark_read(&db, entry_id, Some(300))
@@ -354,7 +354,7 @@ async fn keeps_a_body_whole() {
     wide.body = Some(big.clone());
     let mut short = item("b", Some(20));
     short.body = Some("short".to_owned());
-    poll(&db, feed_id, 100, vec![wide, short]).await;
+    refresh(&db, feed_id, 100, vec![wide, short]).await;
 
     let wide = entry(&db, "a").await;
     assert_eq!(wide.body.as_deref().map(str::len), Some(big.len()));
@@ -372,8 +372,8 @@ async fn gives_every_entry_its_own_guid() {
     let two = feed(&db, "https://two.example/feed", 10).await;
 
     // Two feeds using the same identifier are still two different entries
-    poll(&db, one, 100, vec![item("same", Some(10))]).await;
-    poll(&db, two, 100, vec![item("same", Some(10))]).await;
+    refresh(&db, one, 100, vec![item("same", Some(10))]).await;
+    refresh(&db, two, 100, vec![item("same", Some(10))]).await;
 
     let page = entries::list(&db, &Filter::default(), None, usize::MAX)
         .await
@@ -399,7 +399,10 @@ async fn gives_every_entry_its_own_guid() {
         .expect("read source");
     assert_eq!(source, "same");
 
-    assert_eq!(poll(&db, one, 200, vec![item("same", Some(10))]).await, 0);
+    assert_eq!(
+        refresh(&db, one, 200, vec![item("same", Some(10))]).await,
+        0
+    );
     db.close().await.expect("close database");
 }
 
