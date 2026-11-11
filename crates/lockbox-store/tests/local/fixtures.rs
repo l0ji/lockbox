@@ -4,11 +4,14 @@ use crate::common::Temp;
 use lockbox_store::{
     Db,
     local::{
-        self, Visibility,
+        self,
         bookmarks::{self, NewBookmark},
-        entries::{self, Filter, NewEntry},
-        feeds::{self, NewFeed, Refresh},
+        entries, feeds,
     },
+};
+use lockbox_types::{
+    entry::{Filter, NewEntry},
+    feed::{NewFeed, Refresh, Visibility},
 };
 
 /// Open a local database inside the temporary directory.

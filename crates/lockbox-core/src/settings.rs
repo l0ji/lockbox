@@ -3,11 +3,8 @@
 
 use std::{collections::HashMap, fmt, str::FromStr};
 
-use lockbox_proto::api::nullable;
+use lockbox_types::nullable;
 use serde::{Deserialize, Serialize};
-
-/// Route that reads and changes the settings.
-pub const PATH: &str = "/api/node/settings";
 
 /// All of the preferences that the user can tune.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -5,9 +5,10 @@
 //! when a client built against an older version is expected to have *extreme*
 //! technical difficulties with any changes.
 //!
-//! The routes are grouped by their prefix, and each group keeps the types it
-//! exchanges beside it: [`node`] covers the running node and [`reader`] the
-//! feeds the user follows.
+//! The routes are grouped by their prefix: [`node`] covers the running node and
+//! [`reader`] the feeds the user follows. The payloads they exchange are the
+//! model types in `lockbox-types`, and the cursors and query strings stay here
+//! with the routes that read them.
 
 pub mod cursor;
 pub mod node;
@@ -41,13 +42,13 @@ impl ListQuery {
     }
 }
 
-/// Read a field which may be left out, or sent as a `null` to clear it.
-pub fn nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
+/// One page of a list route.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Page<T> {
+    /// Rows in this page.
+    pub items: Vec<T>,
+    /// Cursor of the next page, or `null` when the list ends here.
+    pub next: Option<String>,
 }
 
 /// Write the pairs which hold a value as a request string.
@@ -80,15 +81,6 @@ fn escape(value: &str) -> String {
         }
     }
     escaped
-}
-
-/// One page of a list route.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Page<T> {
-    /// Rows in this page.
-    pub items: Vec<T>,
-    /// Cursor of the next page, or `null` when the list ends here.
-    pub next: Option<String>,
 }
 
 /// Basic API-side error type.

@@ -2,10 +2,12 @@
 
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, types::Value};
 
+use lockbox_types::feed::Visibility;
+
 use super::{
-    Placed, Visibility,
+    Placed,
     folders::{self, Kind},
-    renumber,
+    named, renumber,
 };
 use crate::{Db, Error};
 
@@ -106,12 +108,7 @@ pub struct Cursor {
 }
 
 /// One page of bookmarks.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Page {
-    pub items: Vec<Bookmark>,
-    /// Where the next page starts, absent at the end.
-    pub next: Option<Cursor>,
-}
+pub type Page = super::Page<Bookmark, Cursor>;
 
 /// Save a bookmark or return the one which is already saved under the same URL.
 pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark, Error> {
@@ -136,7 +133,7 @@ pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark
                 bookmark.note,
                 bookmark.folder_id,
                 bookmark.entry_id,
-                bookmark.visibility,
+                bookmark.visibility.as_str(),
                 now,
             ],
         )?;
@@ -201,7 +198,7 @@ pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Bookma
         }
         if let Some(visibility) = change.visibility {
             sets.push("visibility = ?");
-            args.push(Value::Text(visibility.text().to_owned()));
+            args.push(Value::Text(visibility.as_str().to_owned()));
         }
 
         let sql = format!(
@@ -397,6 +394,6 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Bookmark> {
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
         archived_at: row.get(10)?,
-        visibility: row.get(11)?,
+        visibility: named(row, 11, "bookmark visibility", Visibility::parse)?,
     })
 }

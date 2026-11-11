@@ -12,19 +12,21 @@ use std::{
 
 use axum::{Router, routing::get};
 use common::{Daemon, Site, json, request};
-use lockbox_core::settings::{PATH as SETTINGS_PATH, Settings};
+use lockbox_core::settings::Settings;
 use lockbox_proto::{
     PROTOCOL_VERSION,
     api::{
         ApiError, Code, Page,
-        node::{self, Health, Status},
-        reader::{
-            self, DEFAULT_USER_AGENT, ENTRIES_PATH, Entry, EntrySummary, FEEDS_PATH, Feed, Kind,
-            Refreshed,
-        },
+        node::{self, SETTINGS_PATH},
+        reader::{self, DEFAULT_USER_AGENT, ENTRIES_PATH, FEEDS_PATH},
     },
 };
-use lockbox_store::local::{feeds::DEFAULT_TIMEOUT_SECONDS, settings};
+use lockbox_store::local::settings;
+use lockbox_types::{
+    entry::{Entry, EntrySummary},
+    feed::{DEFAULT_TIMEOUT_SECONDS, Feed, Kind, Refreshed},
+    node::{Health, Status},
+};
 
 /// A feed document with two items, the first of which has a body.
 const RSS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>

@@ -1755,6 +1755,7 @@ dependencies = [
  "html-escape",
  "iroh",
  "lockbox-proto",
+ "lockbox-types",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -1767,6 +1768,7 @@ name = "lockbox-proto"
 version = "0.1.0"
 dependencies = [
  "bech32",
+ "lockbox-types",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -1776,8 +1778,17 @@ dependencies = [
 name = "lockbox-store"
 version = "0.1.0"
 dependencies = [
+ "lockbox-types",
  "rusqlite",
  "tokio",
+]
+
+[[package]]
+name = "lockbox-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1791,6 +1802,7 @@ dependencies = [
  "hyper-util",
  "hyperlocal",
  "lockbox-proto",
+ "lockbox-types",
  "serde",
  "serde_json",
  "tokio",
@@ -1807,6 +1819,7 @@ dependencies = [
  "lockbox-core",
  "lockbox-proto",
  "lockbox-store",
+ "lockbox-types",
  "serde",
  "serde_json",
  "tokio",

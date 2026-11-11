@@ -12,11 +12,8 @@ use axum::{
     routing::get,
 };
 use common::{Stub, sample_status};
-use lockbox_proto::api::{
-    ApiError, Code, Page,
-    node::{STATUS_PATH, Status},
-    reader::{self, EntrySummary, Feed},
-};
+use lockbox_proto::api::{ApiError, Code, Page, node::STATUS_PATH, reader};
+use lockbox_types::{entry::EntrySummary, feed::Feed, node::Status};
 use lockbox_web::{AppState, DaemonClient, NODE_PAGE, router};
 use tower::ServiceExt;
 

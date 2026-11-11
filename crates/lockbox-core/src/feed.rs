@@ -7,7 +7,7 @@ use feed_rs::{
     parser::ParseFeedError,
 };
 use html_escape::decode_html_entities;
-use lockbox_proto::api::reader::Kind;
+use lockbox_types::{entry::NewEntry, feed::Kind};
 use url::Url;
 
 /// Document types which a page advertises its feed as.
@@ -29,26 +29,7 @@ pub struct Parsed {
     /// Site the feed belongs to.
     pub site_url: Option<String>,
     /// Items the document holds.
-    pub entries: Vec<Item>,
-}
-
-/// One item of a feed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Item {
-    /// Identifier which the feed gives the item.
-    pub source: String,
-    /// Page the item links to.
-    pub url: Option<String>,
-    /// Title of the item, which falls back to its address.
-    pub title: String,
-    /// Who wrote it.
-    pub author: Option<String>,
-    /// Short summary the feed gave.
-    pub summary: Option<String>,
-    /// Body as the document gave it.
-    pub body: Option<String>,
-    /// When the feed says it was published.
-    pub published_at: Option<i64>,
+    pub entries: Vec<NewEntry>,
 }
 
 /// Read a feed document, whose format the parser works out itself.
@@ -123,15 +104,17 @@ pub fn discover(page: &str, base: &Url) -> Option<Url> {
 }
 
 /// Read one item of a document, which falls back to the feed's author.
-fn item(entry: Document, author: Option<String>) -> Item {
+fn item(entry: Document, author: Option<String>) -> NewEntry {
     let url = link(&entry.links);
+    let canonical_url = url.clone();
     let title = text(entry.title)
         .or_else(|| url.clone())
         .unwrap_or_else(|| entry.id.clone());
 
-    Item {
+    NewEntry {
         source: entry.id,
         url,
+        canonical_url,
         title,
         author: entry
             .authors
@@ -143,6 +126,7 @@ fn item(entry: Document, author: Option<String>) -> Item {
             .content
             .and_then(|content| content.body)
             .map(|body| decode(&body)),
+        truncated: false,
         published_at: entry
             .published
             .or(entry.updated)

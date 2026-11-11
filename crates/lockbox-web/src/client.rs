@@ -10,6 +10,7 @@ use http_body_util::{BodyExt, Full, Limited};
 use hyper::{Method, Request, body::Bytes, header};
 use hyper_util::client::legacy;
 use hyperlocal::{UnixClientExt, UnixConnector};
+use lockbox_types::root_cause;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::time::timeout;
 
@@ -84,17 +85,6 @@ impl fmt::Display for ClientError {
             Self::Parse(err) => write!(f, "cannot parse daemon reply: {err}"),
         }
     }
-}
-
-/// Deepest cause in an error chain, which is the one that names the problem.
-fn root_cause<'a>(
-    err: &'a (dyn std::error::Error + 'static),
-) -> &'a (dyn std::error::Error + 'static) {
-    let mut cause = err;
-    while let Some(next) = cause.source() {
-        cause = next;
-    }
-    cause
 }
 
 impl std::error::Error for ClientError {

@@ -4,7 +4,7 @@
 mod common;
 
 use lockbox_core::feed;
-use lockbox_proto::api::reader::Kind;
+use lockbox_types::feed::Kind;
 use url::Url;
 
 /// A small RSS document with the fields a reader shows.

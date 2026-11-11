@@ -9,18 +9,17 @@ use axum::{
 use lockbox_proto::api::{
     ApiError, Cursor, DEFAULT_LIMIT, ListQuery, Page,
     cursor::Key,
-    reader::{
-        ENTRIES_PATH, ENTRIES_SORT, Entry, EntryChange, EntryQuery, EntrySummary, FEEDS_PATH,
-        FEEDS_SORT, Feed, FeedChange, Kind, NewFeed, Refreshed, Visibility,
-    },
+    reader::{ENTRIES_PATH, ENTRIES_SORT, EntryQuery, FEEDS_PATH, FEEDS_SORT},
 };
 use lockbox_store::local::{entries, feeds};
+use lockbox_types::{
+    entry::{Entry, EntryChange, EntrySummary},
+    feed::{Feed, FeedChange, NewFeed, Refreshed},
+    now,
+};
 
 use super::{ApiJson, Failure};
-use crate::{
-    AppState,
-    reader::{self, now},
-};
+use crate::{AppState, reader};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -58,7 +57,7 @@ async fn list_feeds(
         None => None,
     };
     Ok(Json(Page {
-        items: page.items.into_iter().map(feed_out).collect(),
+        items: page.items,
         next,
     }))
 }
@@ -71,7 +70,7 @@ async fn add_feed(
     let refreshed = reader::add(state.db(), state.fetcher(), request)
         .await
         .map_err(refresh_failure)?;
-    Ok((StatusCode::CREATED, Json(refreshed_out(refreshed))))
+    Ok((StatusCode::CREATED, Json(refreshed)))
 }
 
 /// Read one feed.
@@ -80,7 +79,7 @@ async fn read_feed(
     Path(id): Path<i64>,
 ) -> Result<Json<Feed>, Failure> {
     match feeds::get(state.db(), id).await? {
-        Some(feed) => Ok(Json(feed_out(feed))),
+        Some(feed) => Ok(Json(feed)),
         None => Err(missing("feed")),
     }
 }
@@ -91,20 +90,7 @@ async fn change_feed(
     Path(id): Path<i64>,
     ApiJson(change): ApiJson<FeedChange>,
 ) -> Result<Json<Feed>, Failure> {
-    let change = feeds::Change {
-        url: change.url,
-        site_url: change.site_url,
-        title: change.title,
-        kind: change.kind.map(kind_in),
-        refresh_seconds: change.refresh_seconds,
-        timeout_seconds: change.timeout_seconds,
-        user_agent: change.user_agent,
-        visibility: change.visibility.map(visibility_in),
-        disabled: change.disabled,
-    };
-    Ok(Json(feed_out(
-        feeds::update(state.db(), id, change, now()).await?,
-    )))
+    Ok(Json(feeds::update(state.db(), id, change, now()).await?))
 }
 
 /// Remove one feed and the entries it brought.
@@ -127,7 +113,7 @@ async fn refresh_feed(
     let refreshed = reader::refresh(state.db(), state.fetcher(), feed)
         .await
         .map_err(refresh_failure)?;
-    Ok(Json(refreshed_out(refreshed)))
+    Ok(Json(refreshed))
 }
 
 /// List the entries which a filter matches, newest first.
@@ -135,13 +121,7 @@ async fn list_entries(
     State(state): State<AppState>,
     Query(query): Query<EntryQuery>,
 ) -> Result<Json<Page<EntrySummary>>, Failure> {
-    let filter = entries::Filter {
-        feed_id: query.feed,
-        read: query.read,
-        starred: query.starred,
-        archived: query.archived,
-        query: query.query,
-    };
+    let filter = query.filter();
     let after = query.cursor.as_deref().map(entry_cursor).transpose()?;
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
     let page = entries::list(state.db(), &filter, after, limit).await?;
@@ -158,7 +138,7 @@ async fn list_entries(
         None => None,
     };
     Ok(Json(Page {
-        items: page.items.into_iter().map(summary_out).collect(),
+        items: page.items,
         next,
     }))
 }
@@ -169,7 +149,7 @@ async fn read_entry(
     Path(id): Path<i64>,
 ) -> Result<Json<Entry>, Failure> {
     match entries::get(state.db(), id).await? {
-        Some(entry) => Ok(Json(entry_out(entry))),
+        Some(entry) => Ok(Json(entry)),
         None => Err(missing("entry")),
     }
 }
@@ -192,7 +172,7 @@ async fn change_entry(
     }
 
     match entries::get(db, id).await? {
-        Some(entry) => Ok(Json(entry_out(entry))),
+        Some(entry) => Ok(Json(entry)),
         None => Err(missing("entry")),
     }
 }
@@ -251,96 +231,5 @@ fn entry_cursor(text: &str) -> Result<entries::Cursor, ApiError> {
         _ => Err(ApiError::invalid(format!(
             "cursor {text} is not a position in the reading list"
         ))),
-    }
-}
-
-/// The reply form of one feed.
-fn feed_out(feed: feeds::Feed) -> Feed {
-    Feed {
-        id: feed.id,
-        url: feed.url,
-        site_url: feed.site_url,
-        title: feed.title,
-        kind: kind_out(feed.kind),
-        refresh_seconds: feed.refresh_seconds,
-        timeout_seconds: feed.timeout_seconds,
-        user_agent: feed.user_agent,
-        next_refresh_at: feed.next_refresh_at,
-        fetched_at: feed.fetched_at,
-        last_error: feed.last_error,
-        visibility: visibility_out(feed.visibility),
-        disabled: feed.disabled,
-        created_at: feed.created_at,
-        updated_at: feed.updated_at,
-    }
-}
-
-/// The reply form of one refresh.
-fn refreshed_out(refreshed: reader::Refreshed) -> Refreshed {
-    Refreshed {
-        feed: feed_out(refreshed.feed),
-        new_entries: refreshed.new_entries,
-    }
-}
-
-/// The reply form of one entry of a list.
-fn summary_out(entry: entries::EntrySummary) -> EntrySummary {
-    EntrySummary {
-        id: entry.id,
-        guid: entry.guid,
-        feed_id: entry.feed_id,
-        title: entry.title,
-        url: entry.url,
-        author: entry.author,
-        summary: entry.summary,
-        published_at: entry.published_at,
-        sort_at: entry.sort_at,
-        fetched_at: entry.fetched_at,
-        read_at: entry.read_at,
-        starred_at: entry.starred_at,
-        archived_at: entry.archived_at,
-    }
-}
-
-/// The reply form of one entry with its body.
-fn entry_out(entry: entries::Entry) -> Entry {
-    Entry {
-        summary: summary_out(entry.summary),
-        body: entry.body,
-        truncated: entry.truncated,
-    }
-}
-
-/// The reply form of a feed's format.
-fn kind_out(kind: feeds::Kind) -> Kind {
-    match kind {
-        feeds::Kind::Rss => Kind::Rss,
-        feeds::Kind::Atom => Kind::Atom,
-        feeds::Kind::Json => Kind::Json,
-    }
-}
-
-/// The stored form of a feed's format.
-fn kind_in(kind: Kind) -> feeds::Kind {
-    match kind {
-        Kind::Rss => feeds::Kind::Rss,
-        Kind::Atom => feeds::Kind::Atom,
-        Kind::Json => feeds::Kind::Json,
-    }
-}
-
-/// The reply form of a feed's visibility.
-fn visibility_out(visibility: lockbox_store::local::Visibility) -> Visibility {
-    match visibility {
-        lockbox_store::local::Visibility::Public => Visibility::Public,
-        lockbox_store::local::Visibility::Private => Visibility::Private,
-    }
-}
-
-/// The stored form of a feed's visibility.
-fn visibility_in(visibility: Visibility) -> lockbox_store::local::Visibility {
-    match visibility {
-        Visibility::Public => lockbox_store::local::Visibility::Public,
-        Visibility::Private => lockbox_store::local::Visibility::Private,
     }
 }

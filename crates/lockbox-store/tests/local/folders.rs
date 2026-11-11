@@ -5,12 +5,12 @@ use crate::fixtures::{bookmark, listed, open};
 use lockbox_store::{
     Error,
     local::{
-        Visibility,
         bookmarks::{self, NewBookmark, Scope},
         folders::{self, Kind, NewFolder},
         tags,
     },
 };
+use lockbox_types::feed::Visibility;
 
 #[tokio::test]
 async fn keeps_folders_in_a_tree() {

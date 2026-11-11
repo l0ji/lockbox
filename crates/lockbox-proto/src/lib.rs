@@ -8,7 +8,8 @@
 //!
 //! This crate should cover purely the technical specification of the protocol
 //! and any asynchronous runtimes, network stacks or other side effect-producing
-//! code should be stored somewhere else.
+//! code should be stored somewhere else. The data which crosses the wire is
+//! defined in `lockbox-types`.
 
 pub mod api;
 pub mod config;

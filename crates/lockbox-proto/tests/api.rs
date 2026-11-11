@@ -1,13 +1,10 @@
-//! Tests of the API types and the cursor type scheme.
+//! Tests of the API's routes, cursors and query strings.
 
 use lockbox_proto::api::{
     ApiError, Code, Cursor, DEFAULT_LIMIT, ListQuery, Page,
     cursor::Key,
     node, reader,
-    reader::{
-        DEFAULT_USER_AGENT, Entry, EntryChange, EntryQuery, EntrySummary, FeedChange, Kind,
-        Visibility,
-    },
+    reader::{DEFAULT_USER_AGENT, EntryQuery},
 };
 use serde_json::json;
 
@@ -102,6 +99,7 @@ fn writes_an_error_with_its_code() {
 fn names_the_node_routes() {
     assert_eq!(node::HEALTH_PATH, "/api/node/health");
     assert_eq!(node::STATUS_PATH, "/api/node/status");
+    assert_eq!(node::SETTINGS_PATH, "/api/node/settings");
 }
 
 #[test]
@@ -156,67 +154,23 @@ fn reads_a_reading_list_query() {
 }
 
 #[test]
-fn writes_an_entry_with_its_body_inline() {
-    let entry = Entry {
-        summary: EntrySummary {
-            id: 1,
-            guid: "abc".to_owned(),
-            feed_id: 2,
-            title: "A post".to_owned(),
-            url: None,
-            author: None,
-            summary: None,
-            published_at: None,
-            sort_at: 1_700_000_000,
-            fetched_at: 1_700_000_000,
-            read_at: None,
-            starred_at: None,
-            archived_at: None,
-        },
-        body: Some("<p>words</p>".to_owned()),
-        truncated: false,
-    };
+fn turns_a_reading_list_query_into_a_filter() {
+    let filter = EntryQuery {
+        feed: Some(3),
+        read: Some(false),
+        archived: Some(true),
+        query: Some("hello".to_owned()),
+        limit: Some(5),
+        cursor: Some("abc".to_owned()),
+        ..EntryQuery::default()
+    }
+    .filter();
 
-    let json = serde_json::to_value(&entry).expect("entry json");
-    assert_eq!(json["title"], "A post");
-    assert_eq!(json["guid"], "abc");
-    assert_eq!(json["sort_at"], 1_700_000_000);
-    assert_eq!(json["body"], "<p>words</p>");
-    assert!(json.get("summary_fields").is_none(), "{json}");
-}
-
-#[test]
-fn names_the_feed_and_entry_states() {
-    assert_eq!(
-        serde_json::to_value(Kind::Json).expect("kind json"),
-        json!("json")
-    );
-    assert_eq!(
-        serde_json::to_value(Visibility::Private).expect("visibility json"),
-        json!("private")
-    );
-    assert_eq!(
-        serde_json::to_value(EntryChange {
-            read: Some(true),
-            ..EntryChange::default()
-        })
-        .expect("change json"),
-        json!({"read": true, "starred": null, "archived": null})
-    );
-}
-
-#[test]
-fn reads_a_feed_change_which_clears_the_user_agent() {
-    let cleared: FeedChange = serde_json::from_str(r#"{"user_agent":null}"#).expect("change");
-    assert_eq!(cleared.user_agent, Some(None));
-
-    let left: FeedChange = serde_json::from_str("{}").expect("change");
-    assert_eq!(left.user_agent, None);
-
-    let named: FeedChange =
-        serde_json::from_str(r#"{"user_agent":"another reader"}"#).expect("change");
-    assert_eq!(named.user_agent, Some(Some("another reader".to_owned())));
-    assert_eq!(named.timeout_seconds, None);
+    assert_eq!(filter.feed_id, Some(3));
+    assert_eq!(filter.read, Some(false));
+    assert_eq!(filter.starred, None);
+    assert_eq!(filter.archived, Some(true));
+    assert_eq!(filter.query.as_deref(), Some("hello"));
 }
 
 #[test]

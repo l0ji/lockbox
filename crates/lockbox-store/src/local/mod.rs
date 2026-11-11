@@ -5,10 +5,7 @@
 
 use std::{io, path::Path};
 
-use rusqlite::{
-    Connection, params,
-    types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
-};
+use rusqlite::{Connection, Row, params, types::FromSqlError};
 
 use crate::{Db, Error};
 
@@ -35,44 +32,29 @@ pub fn open(path: &Path) -> Result<Db, Error> {
     Db::open(path, MIGRATIONS)
 }
 
-/// Whether a piece of data is published to the network.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Visibility {
-    /// Published as a record.
-    Public,
-    /// Kept on this node.
-    Private,
-}
-
-impl Visibility {
-    /// Name used in the database.
-    fn text(self) -> &'static str {
-        match self {
-            Self::Public => "public",
-            Self::Private => "private",
-        }
-    }
-}
-
-impl ToSql for Visibility {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.text().into())
-    }
-}
-
-impl FromSql for Visibility {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        match value.as_str()? {
-            "public" => Ok(Self::Public),
-            "private" => Ok(Self::Private),
-            other => Err(unknown("visibility", other)),
-        }
-    }
+/// One page of a list query, with the position the next page starts after.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Page<T, C> {
+    /// Rows in this page.
+    pub items: Vec<T>,
+    /// Where the next page starts, absent at the end.
+    pub next: Option<C>,
 }
 
 /// Error for a column value the code does not know.
 pub(super) fn unknown(column: &str, value: &str) -> FromSqlError {
     FromSqlError::Other(io::Error::other(format!("unknown {column} {value}")).into())
+}
+
+/// Read a column which holds the name of an enum, and parse it.
+pub(super) fn named<T>(
+    row: &Row<'_>,
+    index: usize,
+    column: &str,
+    parse: impl Fn(&str) -> Option<T>,
+) -> rusqlite::Result<T> {
+    let text: String = row.get(index)?;
+    Ok(parse(&text).ok_or_else(|| unknown(column, &text))?)
 }
 
 /// A table whose rows are ordered by `position` inside a parent.

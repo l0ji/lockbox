@@ -2,6 +2,7 @@
 
 use std::{fmt, time::Duration};
 
+use lockbox_types::root_cause;
 use reqwest::{
     Client, Response, StatusCode,
     header::{ACCEPT, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, USER_AGENT},
@@ -165,7 +166,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Url(error) => write!(f, "not a URL: {error}"),
-            Self::Request(error) => write!(f, "{}", cause(error)),
+            Self::Request(error) => write!(f, "{}", root_cause(error)),
             Self::Status(status) => write!(f, "server replied {status}"),
             Self::TooLarge => write!(f, "document is larger than {MAX_DOCUMENT} bytes"),
         }
@@ -180,15 +181,4 @@ impl std::error::Error for Error {
             Self::Status(_) | Self::TooLarge => None,
         }
     }
-}
-
-/// Deepest cause in an error chain, which is the one that names the problem.
-fn cause<'a>(
-    error: &'a (dyn std::error::Error + 'static),
-) -> &'a (dyn std::error::Error + 'static) {
-    let mut cause = error;
-    while let Some(next) = cause.source() {
-        cause = next;
-    }
-    cause
 }

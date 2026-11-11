@@ -5,12 +5,12 @@ use crate::fixtures::{bookmark, listed, open};
 use lockbox_store::{
     Error,
     local::{
-        Visibility,
         bookmarks::{self, NewBookmark, Scope},
         folders::{self, NewFolder},
         tags, topics,
     },
 };
+use lockbox_types::feed::Visibility;
 
 #[tokio::test]
 async fn saves_a_bookmark() {

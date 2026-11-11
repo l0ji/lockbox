@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+lockbox-types.workspace = true
 rusqlite = { version = "0.41.0", features = ["bundled"] }
 tokio = { workspace = true, features = ["sync"] }
 

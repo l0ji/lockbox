@@ -4,10 +4,8 @@ mod common;
 
 use axum::{Json, Router, http::StatusCode, routing::get};
 use common::{Stub, sample_status};
-use lockbox_proto::api::{
-    ApiError, Code,
-    node::{STATUS_PATH, Status},
-};
+use lockbox_proto::api::{ApiError, Code, node::STATUS_PATH};
+use lockbox_types::node::Status;
 use lockbox_web::DaemonClient;
 
 #[tokio::test]

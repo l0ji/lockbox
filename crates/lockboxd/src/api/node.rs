@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 
 use axum::{Json, Router, extract::State, routing::get};
-use lockbox_core::settings::{PATH as SETTINGS_PATH, Settings, SettingsChange};
-use lockbox_proto::api::node::{HEALTH_PATH, Health, STATUS_PATH, Status};
+use lockbox_core::settings::{Settings, SettingsChange};
+use lockbox_proto::api::node::{HEALTH_PATH, SETTINGS_PATH, STATUS_PATH};
 use lockbox_store::{Error as StoreError, local::settings};
+use lockbox_types::node::{Health, Status};
 
 use super::{ApiJson, Failure};
 use crate::AppState;

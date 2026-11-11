@@ -14,10 +14,8 @@ use axum::{
     response::{self, Html, IntoResponse},
     routing::get,
 };
-use lockbox_proto::api::{
-    ApiError, Code,
-    node::{STATUS_PATH, Status},
-};
+use lockbox_proto::api::{ApiError, Code, node::STATUS_PATH};
+use lockbox_types::node::Status;
 
 pub use client::{ClientError, DaemonClient, Response};
 pub use page::{ErrorPage, NODE_PAGE, Page};

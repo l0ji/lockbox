@@ -1,9 +1,6 @@
 //! The routes for the RSS reader's pages.
 
-use std::{
-    collections::HashMap,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::collections::HashMap;
 
 use askama::Template;
 use axum::{
@@ -16,9 +13,14 @@ use axum::{
 use lockbox_proto::api::{
     ApiError, ListQuery, Page,
     reader::{
-        DEFAULT_USER_AGENT, ENTRIES_PATH, Entry, EntryChange, EntryQuery, EntrySummary, FEEDS_PATH,
-        Feed, FeedChange, Kind, NewFeed, entry_path, feed_path, refresh_path,
+        DEFAULT_USER_AGENT, ENTRIES_PATH, EntryQuery, FEEDS_PATH, entry_path, feed_path,
+        refresh_path,
     },
+};
+use lockbox_types::{
+    entry::{Entry, EntryChange, EntrySummary},
+    feed::{Feed, FeedChange, NewFeed},
+    now,
 };
 use serde::Deserialize;
 
@@ -174,13 +176,7 @@ async fn feeds(State(state): State<AppState>) -> Result<Html<String>, Failure> {
 
 /// Add a feed which the user names by its address.
 async fn add(State(state): State<AppState>, Form(form): Form<AddFeed>) -> Response {
-    let request = NewFeed {
-        url: form.url,
-        title: None,
-        refresh_seconds: None,
-        timeout_seconds: None,
-        user_agent: None,
-    };
+    let request = NewFeed::new(form.url);
     match state.client().post(FEEDS_PATH, &request).await {
         Ok(reply) if reply.is_success() => Redirect::to(FEEDS_PAGE).into_response(),
         Ok(reply) => render_feeds(&state, reason(&reply)).await.into_response(),
@@ -397,7 +393,7 @@ fn feed_row(feed: &Feed, now: i64) -> FeedRow {
         id: feed.id,
         title: feed_title(feed),
         url: feed.url.clone(),
-        kind: kind_text(feed.kind),
+        kind: feed.kind.as_str(),
         interval: interval(feed.refresh_seconds),
         timeout: feed.timeout_seconds,
         user_agent: feed.user_agent.clone().unwrap_or_default(),
@@ -413,18 +409,9 @@ fn feed_row(feed: &Feed, now: i64) -> FeedRow {
 
 /// Name of a feed, falling back to its address.
 fn feed_title(feed: &Feed) -> String {
-    match &feed.title {
-        Some(title) if !title.trim().is_empty() => title.clone(),
-        _ => feed.url.clone(),
-    }
-}
-
-/// Name of a feed's format.
-fn kind_text(kind: Kind) -> &'static str {
-    match kind {
-        Kind::Rss => "rss",
-        Kind::Atom => "atom",
-        Kind::Json => "json",
+    match feed.name().trim().is_empty() {
+        true => feed.url.clone(),
+        false => feed.name().to_owned(),
     }
 }
 
@@ -517,14 +504,6 @@ fn reason(reply: &Reply) -> String {
         Ok(error) => error.error,
         Err(_) => format!("daemon replied {}", reply.status),
     }
-}
-
-/// Time in seconds since the UNIX epoch.
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() as i64)
-        .unwrap_or_default()
 }
 
 /// Render a page, mapping a template failure to a server error.

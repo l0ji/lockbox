@@ -30,3 +30,4 @@ url = "2.5.8"
 lockbox-core = { path = "crates/lockbox-core" }
 lockbox-proto = { path = "crates/lockbox-proto" }
 lockbox-store = { path = "crates/lockbox-store" }
+lockbox-types = { path = "crates/lockbox-types" }

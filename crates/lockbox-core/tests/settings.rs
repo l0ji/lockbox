@@ -2,13 +2,8 @@
 
 use std::collections::HashMap;
 
-use lockbox_core::settings::{PATH, Settings, SettingsChange};
+use lockbox_core::settings::{Settings, SettingsChange};
 use serde_json::json;
-
-#[test]
-fn names_the_settings_route() {
-    assert_eq!(PATH, "/api/node/settings");
-}
 
 #[test]
 fn writes_every_default_setting() {

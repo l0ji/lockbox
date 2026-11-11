@@ -1,11 +1,13 @@
 //! Feeds the reader follows, and the state of their last refresh.
 
-use rusqlite::{
-    OptionalExtension, Row, params, params_from_iter,
-    types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, Value, ValueRef},
+use rusqlite::{OptionalExtension, Row, params, params_from_iter, types::Value};
+
+use lockbox_types::feed::{
+    DEFAULT_REFRESH_SECONDS, DEFAULT_TIMEOUT_SECONDS, Feed, FeedChange, Kind, NewFeed, Refresh,
+    Source, Visibility,
 };
 
-use super::{Visibility, entries, unknown};
+use super::{entries, named};
 use crate::{Db, Error};
 
 /// Columns every feed query returns, in the order [`from_row`] reads them.
@@ -13,189 +15,17 @@ const COLUMNS: &str = "id, url, site_url, title, kind, refresh_seconds, timeout_
      next_refresh_at, fetched_at, etag, last_modified, last_error, visibility, disabled, \
      discovered_from, created_at, updated_at";
 
-/// Seconds a fetch waits for the server when the user names no timeout.
-pub const DEFAULT_TIMEOUT_SECONDS: i64 = 20;
-
-/// One feed the reader follows.
+/// Position in the feed list from which the next page starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Feed {
+pub struct Cursor {
+    /// Title of the last feed on the page, or its URL when it has none.
+    pub name: String,
+    /// Row identifier of that feed.
     pub id: i64,
-    pub url: String,
-    pub site_url: Option<String>,
-    pub title: Option<String>,
-    pub kind: Kind,
-    pub refresh_seconds: i64,
-    pub timeout_seconds: i64,
-    pub user_agent: Option<String>,
-    pub next_refresh_at: Option<i64>,
-    pub fetched_at: Option<i64>,
-    pub etag: Option<String>,
-    pub last_modified: Option<String>,
-    pub last_error: Option<String>,
-    pub visibility: Visibility,
-    pub disabled: bool,
-    pub discovered_from: Source,
-    pub created_at: i64,
-    pub updated_at: i64,
 }
 
-impl Feed {
-    /// Title used in the list, falling back to the URL.
-    pub fn name(&self) -> &str {
-        self.title.as_deref().unwrap_or(&self.url)
-    }
-}
-
-/// Feed formats the reader can parse.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    /// RSS.
-    Rss,
-    /// Atom.
-    Atom,
-    /// JSON Feed.
-    Json,
-}
-
-impl Kind {
-    /// Name used in the database.
-    fn text(self) -> &'static str {
-        match self {
-            Self::Rss => "rss",
-            Self::Atom => "atom",
-            Self::Json => "json",
-        }
-    }
-}
-
-impl ToSql for Kind {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.text().into())
-    }
-}
-
-impl FromSql for Kind {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        match value.as_str()? {
-            "rss" => Ok(Self::Rss),
-            "atom" => Ok(Self::Atom),
-            "json" => Ok(Self::Json),
-            other => Err(unknown("feed kind", other)),
-        }
-    }
-}
-
-/// Where a feed was found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Source {
-    /// Added by the user.
-    User,
-    /// Advertised by a site the reader looked at.
-    Page,
-    /// Named by another account's records.
-    Federation,
-}
-
-impl Source {
-    /// Name used in the database.
-    fn text(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Page => "page",
-            Self::Federation => "federation",
-        }
-    }
-}
-
-impl ToSql for Source {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.text().into())
-    }
-}
-
-impl FromSql for Source {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        match value.as_str()? {
-            "user" => Ok(Self::User),
-            "page" => Ok(Self::Page),
-            "federation" => Ok(Self::Federation),
-            other => Err(unknown("feed source", other)),
-        }
-    }
-}
-
-/// A feed to add to the reader.
-#[derive(Debug, Clone)]
-pub struct NewFeed {
-    /// URL of the feed itself.
-    pub url: String,
-    /// Site the feed belongs to, when it is known.
-    pub site_url: Option<String>,
-    /// Title to show in the reader.
-    pub title: Option<String>,
-    /// Format of the feed document.
-    pub kind: Kind,
-    /// Seconds between refreshes.
-    pub refresh_seconds: i64,
-    /// Seconds the server has to answer a fetch.
-    pub timeout_seconds: i64,
-    /// User agent a fetch sends, or the node's own when it is missing.
-    pub user_agent: Option<String>,
-    /// How the feed was found.
-    pub discovered_from: Source,
-}
-
-impl NewFeed {
-    /// A feed the user added themselves, refreshed every hour.
-    pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            site_url: None,
-            title: None,
-            kind: Kind::Rss,
-            refresh_seconds: 3600,
-            timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
-            user_agent: None,
-            discovered_from: Source::User,
-        }
-    }
-}
-
-/// What one successful fetch of a feed found.
-#[derive(Debug, Clone)]
-pub struct Refresh {
-    /// When the feed was fetched.
-    pub fetched_at: i64,
-    /// Validator to send on the next fetch.
-    pub etag: Option<String>,
-    /// Date to send on the next fetch.
-    pub last_modified: Option<String>,
-    /// Entries the fetch parsed.
-    pub entries: Vec<entries::NewEntry>,
-}
-
-/// Settings the user can change on a feed. A `None` leaves the field alone.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Change {
-    /// Address to fetch.
-    pub url: Option<String>,
-    /// Site the feed belongs to.
-    pub site_url: Option<String>,
-    /// Title to show in the reader.
-    pub title: Option<String>,
-    /// Format of the feed document.
-    pub kind: Option<Kind>,
-    /// Seconds between refreshes.
-    pub refresh_seconds: Option<i64>,
-    /// Seconds the server has to answer a fetch.
-    pub timeout_seconds: Option<i64>,
-    /// User agent a fetch sends, where `Some(None)` returns to the default.
-    pub user_agent: Option<Option<String>>,
-    /// Whether the feed is published.
-    pub visibility: Option<Visibility>,
-    /// Whether refreshing is paused.
-    pub disabled: Option<bool>,
-}
+/// One page of feeds.
+pub type Page = super::Page<Feed, Cursor>;
 
 /// Add a feed, or return the one already stored under `url`.
 pub async fn add(db: &Db, feed: NewFeed, now: i64) -> Result<Feed, Error> {
@@ -210,11 +40,11 @@ pub async fn add(db: &Db, feed: NewFeed, now: i64) -> Result<Feed, Error> {
                 feed.url,
                 feed.site_url,
                 feed.title,
-                feed.kind,
-                feed.refresh_seconds,
-                feed.timeout_seconds,
+                feed.kind.unwrap_or(Kind::Rss).as_str(),
+                feed.refresh_seconds.unwrap_or(DEFAULT_REFRESH_SECONDS),
+                feed.timeout_seconds.unwrap_or(DEFAULT_TIMEOUT_SECONDS),
                 feed.user_agent,
-                feed.discovered_from,
+                feed.discovered_from.as_str(),
                 now,
             ],
         )?;
@@ -254,23 +84,6 @@ pub async fn due(db: &Db, now: i64, limit: usize) -> Result<Vec<Feed>, Error> {
         Ok(items)
     })
     .await
-}
-
-/// Position in the feed list from which the next page starts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Cursor {
-    /// Title of the last feed on the page, or its URL when it has none.
-    pub name: String,
-    /// Row identifier of that feed.
-    pub id: i64,
-}
-
-/// One page of feeds.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Page {
-    pub items: Vec<Feed>,
-    /// Where the next page starts, absent at the end of the list.
-    pub next: Option<Cursor>,
 }
 
 /// List feeds by title, with the URL standing in for a missing one.
@@ -368,7 +181,7 @@ pub async fn record_failure(db: &Db, id: i64, error: &str, now: i64) -> Result<(
 ///
 /// A shorter or longer interval moves a refresh that was already scheduled to
 /// `now + refresh_seconds`.
-pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Feed, Error> {
+pub async fn update(db: &Db, id: i64, change: FeedChange, now: i64) -> Result<Feed, Error> {
     db.call(move |connection| {
         let mut sets = vec!["updated_at = ?"];
         let mut args = vec![Value::Integer(now)];
@@ -387,7 +200,7 @@ pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Feed, 
         }
         if let Some(kind) = change.kind {
             sets.push("kind = ?");
-            args.push(Value::Text(kind.text().to_owned()));
+            args.push(Value::Text(kind.as_str().to_owned()));
         }
         if let Some(seconds) = change.refresh_seconds {
             sets.push("refresh_seconds = ?");
@@ -400,7 +213,7 @@ pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Feed, 
         }
         if let Some(visibility) = change.visibility {
             sets.push("visibility = ?");
-            args.push(Value::Text(visibility.text().to_owned()));
+            args.push(Value::Text(visibility.as_str().to_owned()));
         }
         if let Some(seconds) = change.timeout_seconds {
             sets.push("timeout_seconds = ?");
@@ -454,7 +267,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Feed> {
         url: row.get(1)?,
         site_url: row.get(2)?,
         title: row.get(3)?,
-        kind: row.get(4)?,
+        kind: named(row, 4, "feed kind", Kind::parse)?,
         refresh_seconds: row.get(5)?,
         timeout_seconds: row.get(6)?,
         user_agent: row.get(7)?,
@@ -463,9 +276,9 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Feed> {
         etag: row.get(10)?,
         last_modified: row.get(11)?,
         last_error: row.get(12)?,
-        visibility: row.get(13)?,
+        visibility: named(row, 13, "feed visibility", Visibility::parse)?,
         disabled: row.get(14)?,
-        discovered_from: row.get(15)?,
+        discovered_from: named(row, 15, "feed source", Source::parse)?,
         created_at: row.get(16)?,
         updated_at: row.get(17)?,
     })

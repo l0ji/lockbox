@@ -4,8 +4,9 @@ use std::{sync::Arc, time::Duration};
 
 use lockbox_core::fetch::Fetcher;
 use lockbox_store::{Db, local::feeds};
+use lockbox_types::now;
 
-use crate::reader::{self, now};
+use crate::reader;
 
 /// How often the daemon looks for a feed which is due.
 pub const TICK: Duration = Duration::from_secs(30);

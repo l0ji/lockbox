@@ -2,58 +2,14 @@
 
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, types::Value};
 
+use lockbox_types::entry::{Entry, EntrySummary, Filter, NewEntry};
+
 use crate::{Db, Error};
 
 /// Columns a list returns, in the order [`from_row`] reads them. The body is
 /// never among them.
 const COLUMNS: &str = "id, guid, feed_id, title, url, author, summary, published_at, sort_at, \
      fetched_at, read_at, starred_at, archived_at";
-
-/// What a reader list shows for one entry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EntrySummary {
-    pub id: i64,
-    /// Identifier the store gave this entry.
-    pub guid: String,
-    pub feed_id: i64,
-    pub title: String,
-    pub url: Option<String>,
-    pub author: Option<String>,
-    pub summary: Option<String>,
-    pub published_at: Option<i64>,
-    /// Ordering key: the published date, or the fetch time when there is none.
-    pub sort_at: i64,
-    pub fetched_at: i64,
-    pub read_at: Option<i64>,
-    pub starred_at: Option<i64>,
-    pub archived_at: Option<i64>,
-}
-
-/// One entry with its body.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Entry {
-    /// Everything a list shows.
-    pub summary: EntrySummary,
-    /// Body as the feed gave it.
-    pub body: Option<String>,
-    /// Whether the feed had already cut the body.
-    pub truncated: bool,
-}
-
-/// Which entries a list returns. An empty filter returns every entry.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Filter {
-    /// Only entries from this feed.
-    pub feed_id: Option<i64>,
-    /// Only read entries when true, only unread ones when false.
-    pub read: Option<bool>,
-    /// Only starred entries when true, only unstarred ones when false.
-    pub starred: Option<bool>,
-    /// Only archived entries when true, only unarchived ones when false.
-    pub archived: Option<bool>,
-    /// Words to match against title, summary and body.
-    pub query: Option<String>,
-}
 
 /// Position in the reading list that the next page starts after.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,29 +21,7 @@ pub struct Cursor {
 }
 
 /// One page of the reading list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Page {
-    pub items: Vec<EntrySummary>,
-    /// Where the next page starts, absent at the end.
-    pub next: Option<Cursor>,
-}
-
-/// An entry as a refresh found it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewEntry {
-    /// Identifier the feed gives the item, or its URL when it has none.
-    pub source: String,
-    pub url: Option<String>,
-    pub canonical_url: Option<String>,
-    pub title: String,
-    pub author: Option<String>,
-    pub summary: Option<String>,
-    /// Body as the feed gave it, kept whole.
-    pub body: Option<String>,
-    /// Whether the source itself had already cut the body.
-    pub truncated: bool,
-    pub published_at: Option<i64>,
-}
+pub type Page = super::Page<EntrySummary, Cursor>;
 
 /// List the entries a filter matches, newest first.
 ///

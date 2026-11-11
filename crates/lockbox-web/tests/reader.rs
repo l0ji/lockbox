@@ -11,9 +11,10 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use common::{Stub, sample_body, sample_entry, sample_feed};
-use lockbox_proto::api::{
-    ApiError, Code, Page,
-    reader::{self, Entry, EntrySummary, Feed, FeedChange, Refreshed},
+use lockbox_proto::api::{ApiError, Code, Page, reader};
+use lockbox_types::{
+    entry::{Entry, EntrySummary},
+    feed::{Feed, FeedChange, Refreshed},
 };
 use lockbox_web::{AppState, DaemonClient, TEXT_LIMIT, router};
 use tower::ServiceExt;

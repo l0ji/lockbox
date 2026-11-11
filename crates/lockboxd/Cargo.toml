@@ -8,6 +8,7 @@ axum.workspace = true
 lockbox-core.workspace = true
 lockbox-proto.workspace = true
 lockbox-store.workspace = true
+lockbox-types.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true

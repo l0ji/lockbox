@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 bech32.workspace = true
+lockbox-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

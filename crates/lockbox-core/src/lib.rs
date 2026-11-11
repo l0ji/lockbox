@@ -19,7 +19,8 @@ use std::time::Instant;
 
 use iroh::{Endpoint, endpoint::presets};
 pub use iroh::{EndpointAddr, EndpointId, SecretKey};
-use lockbox_proto::{PROTOCOL_VERSION, api::node::Status, key::encode_public};
+use lockbox_proto::{PROTOCOL_VERSION, key::encode_public};
+use lockbox_types::node::Status;
 
 /// Error type used across the node's code.
 ///

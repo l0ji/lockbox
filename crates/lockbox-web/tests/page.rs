@@ -4,7 +4,8 @@ mod common;
 
 use askama::Template;
 use common::sample_status;
-use lockbox_proto::{PROTOCOL_VERSION, api::node::Status};
+use lockbox_proto::PROTOCOL_VERSION;
+use lockbox_types::node::Status;
 use lockbox_web::{
     EntriesPage, EntryPage, ErrorPage, FeedLink, FeedRow, FeedsPage, FilterLink, Page, Row,
     TEXT_LIMIT, truncate,

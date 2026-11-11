@@ -1,36 +1,23 @@
 //! Fetching feeds into the store.
 
-use std::{
-    fmt,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{fmt, time::Duration};
 
 use lockbox_core::{
     feed::{self, Parsed},
     fetch::{Fetched, Fetcher, Request},
 };
-use lockbox_proto::api::reader::{self, DEFAULT_USER_AGENT, Kind};
-use lockbox_store::{
-    Db, Error as StoreError,
-    local::{
-        entries,
-        feeds::{self, DEFAULT_TIMEOUT_SECONDS, NewFeed, Refresh},
-    },
+use lockbox_proto::api::reader::DEFAULT_USER_AGENT;
+use lockbox_store::{Db, Error as StoreError, local::feeds};
+use lockbox_types::{
+    feed::{DEFAULT_TIMEOUT_SECONDS, Feed, NewFeed, Refresh, Refreshed},
+    now,
 };
-
-/// What a refresh of one feed found.
-pub struct Refreshed {
-    /// The feed after the refresh.
-    pub feed: feeds::Feed,
-    /// Entries which the refresh added.
-    pub new_entries: usize,
-}
 
 /// Fetch one feed and store what it brought.
 ///
 /// A failure is written into the feed's row, where the reader shows it until
 /// the next refresh succeeds.
-pub async fn refresh(db: &Db, fetcher: &Fetcher, feed: feeds::Feed) -> Result<Refreshed, Error> {
+pub async fn refresh(db: &Db, fetcher: &Fetcher, feed: Feed) -> Result<Refreshed, Error> {
     let request = fetch_request(
         &feed.url,
         feed.etag.as_deref(),
@@ -54,7 +41,7 @@ pub async fn refresh(db: &Db, fetcher: &Fetcher, feed: feeds::Feed) -> Result<Re
         Vec::new()
     } else {
         match feed::parse(&fetched.body, Some(&fetched.url)) {
-            Ok(parsed) => entries_of(parsed),
+            Ok(parsed) => parsed.entries,
             Err(source) => {
                 let error = Error::Parse {
                     url: fetched.url.to_string(),
@@ -84,7 +71,7 @@ pub async fn refresh(db: &Db, fetcher: &Fetcher, feed: feeds::Feed) -> Result<Re
 }
 
 /// Add the feed a user asked for, storing it with the items it brought.
-pub async fn add(db: &Db, fetcher: &Fetcher, wanted: reader::NewFeed) -> Result<Refreshed, Error> {
+pub async fn add(db: &Db, fetcher: &Fetcher, wanted: NewFeed) -> Result<Refreshed, Error> {
     let timeout_seconds = wanted.timeout_seconds.unwrap_or(DEFAULT_TIMEOUT_SECONDS);
     let (fetched, parsed) = resolve(
         fetcher,
@@ -94,16 +81,20 @@ pub async fn add(db: &Db, fetcher: &Fetcher, wanted: reader::NewFeed) -> Result<
     )
     .await?;
 
-    let mut request = NewFeed::new(fetched.url.to_string());
-    request.site_url = parsed.site_url.clone();
-    request.title = wanted.title.or_else(|| parsed.title.clone());
-    request.kind = kind(parsed.kind);
-    request.timeout_seconds = timeout_seconds;
-    request.user_agent = wanted.user_agent;
-    if let Some(seconds) = wanted.refresh_seconds {
-        request.refresh_seconds = seconds;
-    }
-    let feed = feeds::add(db, request, now()).await?;
+    let feed = feeds::add(
+        db,
+        NewFeed {
+            site_url: parsed.site_url.clone(),
+            title: wanted.title.or_else(|| parsed.title.clone()),
+            timeout_seconds: wanted.timeout_seconds,
+            user_agent: wanted.user_agent,
+            kind: Some(parsed.kind),
+            refresh_seconds: wanted.refresh_seconds,
+            ..NewFeed::new(fetched.url.to_string())
+        },
+        now(),
+    )
+    .await?;
 
     let new_entries = feeds::record_refresh(
         db,
@@ -112,7 +103,7 @@ pub async fn add(db: &Db, fetcher: &Fetcher, wanted: reader::NewFeed) -> Result<
             fetched_at: now(),
             etag: fetched.etag,
             last_modified: fetched.last_modified,
-            entries: entries_of(parsed),
+            entries: parsed.entries,
         },
     )
     .await?;
@@ -162,13 +153,13 @@ async fn resolve(
 }
 
 /// Write a failed refresh into the feed's row, which the reader can show.
-async fn fail(db: &Db, feed: &feeds::Feed, error: &Error) -> Result<(), Error> {
+async fn fail(db: &Db, feed: &Feed, error: &Error) -> Result<(), Error> {
     feeds::record_failure(db, feed.id, &error.to_string(), now()).await?;
     Ok(())
 }
 
 /// Read back a feed which a call just wrote.
-async fn stored(db: &Db, id: i64) -> Result<feeds::Feed, Error> {
+async fn stored(db: &Db, id: i64) -> Result<Feed, Error> {
     match feeds::get(db, id).await? {
         Some(feed) => Ok(feed),
         None => Err(Error::Store(StoreError::NotFound)),
@@ -190,42 +181,6 @@ fn fetch_request<'a>(
         timeout: Duration::from_secs(timeout_seconds.max(1) as u64),
         user_agent: user_agent.unwrap_or(DEFAULT_USER_AGENT),
     }
-}
-
-/// The entries which a document holds, in the store's terms.
-fn entries_of(parsed: Parsed) -> Vec<entries::NewEntry> {
-    parsed
-        .entries
-        .into_iter()
-        .map(|item| entries::NewEntry {
-            source: item.source,
-            canonical_url: item.url.clone(),
-            url: item.url,
-            title: item.title,
-            author: item.author,
-            summary: item.summary,
-            body: item.body,
-            truncated: false,
-            published_at: item.published_at,
-        })
-        .collect()
-}
-
-/// The feed format which the store keeps.
-fn kind(kind: Kind) -> feeds::Kind {
-    match kind {
-        Kind::Rss => feeds::Kind::Rss,
-        Kind::Atom => feeds::Kind::Atom,
-        Kind::Json => feeds::Kind::Json,
-    }
-}
-
-/// Time in seconds since the UNIX epoch.
-pub fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() as i64)
-        .unwrap_or_default()
 }
 
 /// Why a feed could not be refreshed.

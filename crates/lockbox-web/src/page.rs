@@ -1,7 +1,7 @@
 //! The node and error pages.
 
 use askama::Template;
-use lockbox_proto::api::node::Status;
+use lockbox_types::node::Status;
 
 /// Page which reports on the daemon itself.
 pub const NODE_PAGE: &str = "/node";

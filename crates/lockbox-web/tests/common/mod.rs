@@ -9,12 +9,11 @@ use std::{
 };
 
 use axum::{Json, Router, routing::get};
-use lockbox_proto::{
-    PROTOCOL_VERSION,
-    api::{
-        node::{STATUS_PATH, Status},
-        reader::{Entry, EntrySummary, Feed, Kind, Visibility},
-    },
+use lockbox_proto::{PROTOCOL_VERSION, api::node::STATUS_PATH};
+use lockbox_types::{
+    entry::{Entry, EntrySummary},
+    feed::{Feed, Kind, Source, Visibility},
+    node::Status,
 };
 
 /// A sample status reply from the daemon.
@@ -91,9 +90,12 @@ pub fn sample_feed() -> Feed {
         user_agent: None,
         next_refresh_at: Some(1_700_003_600),
         fetched_at: Some(1_700_000_000),
+        etag: None,
+        last_modified: None,
         last_error: None,
         visibility: Visibility::Private,
         disabled: false,
+        discovered_from: Source::User,
         created_at: 1_700_000_000,
         updated_at: 1_700_000_000,
     }

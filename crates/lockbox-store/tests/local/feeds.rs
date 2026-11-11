@@ -4,11 +4,11 @@ use crate::common::Temp;
 use crate::fixtures::{feed, item, list, open, refresh, titles};
 use lockbox_store::{
     Error,
-    local::{
-        Visibility,
-        entries::{self, Filter},
-        feeds::{self, Change, DEFAULT_TIMEOUT_SECONDS, Kind, NewFeed, Refresh, Source},
-    },
+    local::{entries, feeds},
+};
+use lockbox_types::{
+    entry::Filter,
+    feed::{DEFAULT_TIMEOUT_SECONDS, FeedChange, Kind, NewFeed, Refresh, Source, Visibility},
 };
 
 #[tokio::test]
@@ -244,9 +244,9 @@ async fn lists_the_feeds_that_are_due() {
     feeds::update(
         &db,
         paused,
-        Change {
+        FeedChange {
             disabled: Some(true),
-            ..Change::default()
+            ..FeedChange::default()
         },
         100,
     )
@@ -275,7 +275,7 @@ async fn changes_feed_settings() {
     let changed = feeds::update(
         &db,
         feed_id,
-        Change {
+        FeedChange {
             url: Some("https://example.com/new-feed".to_owned()),
             site_url: Some("https://example.com/".to_owned()),
             title: Some("Example".to_owned()),
@@ -311,9 +311,9 @@ async fn changes_feed_settings() {
     let changed = feeds::update(
         &db,
         feed_id,
-        Change {
+        FeedChange {
             title: Some("Renamed".to_owned()),
-            ..Change::default()
+            ..FeedChange::default()
         },
         300,
     )
@@ -328,9 +328,9 @@ async fn changes_feed_settings() {
     let changed = feeds::update(
         &db,
         fresh,
-        Change {
+        FeedChange {
             refresh_seconds: Some(300),
-            ..Change::default()
+            ..FeedChange::default()
         },
         50,
     )
@@ -342,9 +342,9 @@ async fn changes_feed_settings() {
     let error = feeds::update(
         &db,
         feed_id,
-        Change {
+        FeedChange {
             refresh_seconds: Some(10),
-            ..Change::default()
+            ..FeedChange::default()
         },
         400,
     )
@@ -353,7 +353,7 @@ async fn changes_feed_settings() {
     assert!(matches!(error, Error::Invalid(_)), "{error}");
     assert!(error.to_string().contains("refresh_seconds"), "{error}");
 
-    let error = feeds::update(&db, 9_999, Change::default(), 400)
+    let error = feeds::update(&db, 9_999, FeedChange::default(), 400)
         .await
         .expect_err("no such feed");
     assert!(matches!(error, Error::NotFound), "{error}");
@@ -441,10 +441,10 @@ async fn changes_how_a_feed_is_fetched() {
     let changed = feeds::update(
         &db,
         id,
-        Change {
+        FeedChange {
             timeout_seconds: Some(90),
             user_agent: Some(Some("Jane's reader".to_owned())),
-            ..Change::default()
+            ..FeedChange::default()
         },
         20,
     )
@@ -457,9 +457,9 @@ async fn changes_how_a_feed_is_fetched() {
     let cleared = feeds::update(
         &db,
         id,
-        Change {
+        FeedChange {
             user_agent: Some(None),
-            ..Change::default()
+            ..FeedChange::default()
         },
         30,
     )
@@ -472,9 +472,9 @@ async fn changes_how_a_feed_is_fetched() {
     let error = feeds::update(
         &db,
         id,
-        Change {
+        FeedChange {
             timeout_seconds: Some(0),
-            ..Change::default()
+            ..FeedChange::default()
         },
         40,
     )

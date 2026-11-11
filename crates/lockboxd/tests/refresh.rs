@@ -9,11 +9,11 @@ use common::{Site, TempDir};
 use lockbox_core::fetch::Fetcher;
 use lockbox_store::{
     Db,
-    local::{
-        self,
-        entries::{self, Filter},
-        feeds::{self, NewFeed, Refresh},
-    },
+    local::{self, entries, feeds},
+};
+use lockbox_types::{
+    entry::Filter,
+    feed::{Feed, NewFeed, Refresh},
 };
 use lockboxd::refresh;
 
@@ -61,7 +61,7 @@ async fn due_feed(db: &Db, url: &str) -> i64 {
 }
 
 /// Start the loop on `db` and wait until the feed matches `done`.
-async fn wait_for(db: &Arc<Db>, id: i64, done: impl Fn(&feeds::Feed) -> bool) -> feeds::Feed {
+async fn wait_for(db: &Arc<Db>, id: i64, done: impl Fn(&Feed) -> bool) -> Feed {
     let fetcher = Fetcher::new().expect("build the HTTP client");
     let task = tokio::spawn(refresh::run(Arc::clone(db), fetcher, TICK));
 

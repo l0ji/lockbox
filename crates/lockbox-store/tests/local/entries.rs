@@ -2,10 +2,8 @@
 
 use crate::common::Temp;
 use crate::fixtures::{feed, item, list, open, refresh, titles};
-use lockbox_store::{
-    Db, Error,
-    local::entries::{self, Filter},
-};
+use lockbox_store::{Db, Error, local::entries};
+use lockbox_types::entry::Filter;
 
 #[tokio::test]
 async fn pages_through_the_reading_list() {
@@ -420,7 +418,7 @@ async fn id(db: &Db, source: &str) -> i64 {
 }
 
 /// One entry with its body, read by source.
-async fn entry(db: &Db, source: &str) -> entries::Entry {
+async fn entry(db: &Db, source: &str) -> lockbox_types::entry::Entry {
     let id = id(db, source).await;
     entries::get(db, id)
         .await
