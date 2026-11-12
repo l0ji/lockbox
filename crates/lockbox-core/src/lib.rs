@@ -4,11 +4,13 @@
 //! its lifetime and turns the protocol into a local API meant to be consumed
 //! by clients.
 //!
+//! [`canonical`] rewrites saved links into their final form.
 //! [`config`] resolves and creates the directory for lockbox files.
 //! [`key`] reads and writes the account keypair to the config directory.
 //! [`settings`] holds the preferences that the daemon stores and serves.
 //! [`fetch`] gets the documents the reader asks for and [`feed`] reads them.
 
+pub mod canonical;
 pub mod config;
 pub mod feed;
 pub mod fetch;

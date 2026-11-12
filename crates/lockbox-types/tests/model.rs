@@ -1,8 +1,12 @@
 //! Tests of the model's text forms and of what it writes to a client.
 
 use lockbox_types::{
+    bookmark::{Bookmark, BookmarkChange, NewBookmark, Scope},
     entry::{Entry, EntryChange, EntrySummary},
-    feed::{Feed, FeedChange, Kind, Source, Visibility},
+    feed::{Feed, FeedChange, Kind, Source},
+    folder::{Folder, Kind as FolderKind, NewFolder},
+    topic::Topic,
+    visibility::Visibility,
 };
 use serde_json::json;
 
@@ -140,4 +144,83 @@ fn leaves_the_node_state_out_of_a_feed() {
         ..feed
     };
     assert_eq!(read, without_state);
+}
+
+#[test]
+fn writes_a_bookmark_with_its_topics() {
+    let bookmark = Bookmark {
+        id: 1,
+        url: "https://example.com/a".to_owned(),
+        canonical_url: "https://example.com/a".to_owned(),
+        title: "A post".to_owned(),
+        note: None,
+        folder_id: Some(2),
+        position: 0,
+        entry_id: None,
+        created_at: 10,
+        updated_at: 20,
+        archived_at: None,
+        visibility: Visibility::Public,
+        topics: vec![Topic {
+            id: 3,
+            name: "Rust".to_owned(),
+            created_at: 10,
+            followed_at: None,
+        }],
+    };
+
+    let json = serde_json::to_value(&bookmark).expect("bookmark json");
+    assert_eq!(json["visibility"], "public");
+    assert_eq!(json["topics"][0]["name"], "Rust");
+    let read: Bookmark = serde_json::from_value(json).expect("bookmark json");
+    assert_eq!(read, bookmark);
+}
+
+#[test]
+fn reads_a_bookmark_change_which_clears_a_field() {
+    let change: BookmarkChange =
+        serde_json::from_str(r#"{"note":null,"folder_id":null,"title":"Better","archived":true}"#)
+            .expect("change");
+    assert_eq!(change.note, Some(None));
+    assert_eq!(change.folder_id, Some(None));
+    assert_eq!(change.title.as_deref(), Some("Better"));
+    assert_eq!(change.archived, Some(true));
+    assert_eq!(change.visibility, None);
+    assert_eq!(change.canonical_url, None);
+
+    let left: BookmarkChange = serde_json::from_str("{}").expect("change");
+    assert_eq!(left.note, None);
+    assert_eq!(left.folder_id, None);
+}
+
+#[test]
+fn names_the_folder_kind_and_reads_a_new_folder() {
+    for (kind, name) in [
+        (FolderKind::Manual, "manual"),
+        (FolderKind::Dynamic, "dynamic"),
+    ] {
+        assert_eq!(kind.as_str(), name);
+        assert_eq!(serde_json::to_value(kind).expect("kind json"), json!(name));
+        assert_eq!(FolderKind::parse(name), Some(kind));
+    }
+
+    let folder: NewFolder = serde_json::from_str(r#"{"name":"Reading"}"#).expect("folder");
+    assert_eq!(folder.kind, FolderKind::Manual);
+    assert_eq!(folder.parent_id, None);
+    assert!(folder.topics.is_empty());
+
+    let read: Folder = serde_json::from_str(
+        r#"{"id":1,"parent_id":null,"name":"Rust","kind":"dynamic","position":0,"created_at":10,"topics":[]}"#,
+    )
+    .expect("folder");
+    assert_eq!(read.kind, FolderKind::Dynamic);
+}
+
+#[test]
+fn names_the_bookmark_scope() {
+    assert_eq!(Scope::default(), Scope::All);
+    assert_eq!(
+        NewBookmark::new("https://a.example", "A", Visibility::Public).topics,
+        Vec::<String>::new()
+    );
 }

@@ -1,9 +1,13 @@
 //! Data types and structs which the crates of this project share.
 
+pub mod bookmark;
 pub mod entry;
 pub mod error;
 pub mod feed;
+pub mod folder;
 pub mod node;
+pub mod topic;
+pub mod visibility;
 
 mod time;
 
