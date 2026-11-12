@@ -6,9 +6,7 @@
 //! technical difficulties with any changes.
 //!
 //! The routes are grouped by their prefix: [`node`] covers the running node and
-//! [`reader`] the feeds the user follows. The payloads they exchange are the
-//! model types in `lockbox-types`, and the cursors and query strings stay here
-//! with the routes that read them.
+//! [`reader`] the feeds, entries, bookmarks, folders and topics the user keeps.
 
 pub mod cursor;
 pub mod node;
