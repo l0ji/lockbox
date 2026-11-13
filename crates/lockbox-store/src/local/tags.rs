@@ -2,7 +2,9 @@
 
 use rusqlite::params;
 
-use super::topics::{self, Topic};
+use lockbox_types::topic::Topic;
+
+use super::topics;
 use crate::{Db, Error};
 
 /// The topics on a bookmark, ordered by name.
@@ -21,8 +23,7 @@ pub async fn set(
     names: Vec<String>,
     now: i64,
 ) -> Result<Vec<Topic>, Error> {
-    db.call(move |connection| {
-        let transaction = connection.transaction()?;
+    db.transaction(move |transaction| {
         let exists: bool = transaction.query_row(
             "SELECT EXISTS (SELECT 1 FROM bookmark WHERE id = ?1)",
             [bookmark_id],
@@ -32,7 +33,7 @@ pub async fn set(
             return Err(Error::NotFound);
         }
 
-        let wanted = topics::resolve(&transaction, &names, now)?;
+        let wanted = topics::resolve(transaction, &names, now)?;
 
         let existing: Vec<i64> = {
             let mut statement = transaction
@@ -58,8 +59,7 @@ pub async fn set(
             }
         }
 
-        let topics = topics::of_bookmark(&transaction, bookmark_id)?;
-        transaction.commit()?;
+        let topics = topics::of_bookmark(transaction, bookmark_id)?;
         Ok(topics)
     })
     .await

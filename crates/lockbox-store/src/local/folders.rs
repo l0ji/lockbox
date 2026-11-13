@@ -2,91 +2,18 @@
 
 use std::collections::HashMap;
 
-use rusqlite::{
-    Connection, OptionalExtension, Row, params,
-    types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
+use rusqlite::{Connection, OptionalExtension, Row, params};
+
+use lockbox_types::{
+    folder::{Folder, FolderChange, Kind, NewFolder},
+    topic::Topic,
 };
 
-use super::{
-    Placed, renumber,
-    topics::{self, Topic},
-    unknown,
-};
+use super::{Placed, named, renumber, topics};
 use crate::{Db, Error};
 
 /// Columns every folder query returns, in the order [`from_row`] reads them.
 const COLUMNS: &str = "id, parent_id, name, kind, position, created_at";
-
-/// What decides a folder's contents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    /// Bookmarks are filed into it by hand.
-    Manual,
-    /// It matches the topics it carries.
-    Dynamic,
-}
-
-impl Kind {
-    /// Name used in the database.
-    fn text(self) -> &'static str {
-        match self {
-            Self::Manual => "manual",
-            Self::Dynamic => "dynamic",
-        }
-    }
-}
-
-impl ToSql for Kind {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.text().into())
-    }
-}
-
-impl FromSql for Kind {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        match value.as_str()? {
-            "manual" => Ok(Self::Manual),
-            "dynamic" => Ok(Self::Dynamic),
-            other => Err(unknown("folder kind", other)),
-        }
-    }
-}
-
-/// One folder in the reader's tree.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Folder {
-    pub id: i64,
-    pub parent_id: Option<i64>,
-    pub name: String,
-    pub kind: Kind,
-    pub position: i64,
-    pub created_at: i64,
-    /// Topics a dynamic folder matches, by name.
-    pub topics: Vec<Topic>,
-}
-
-/// A folder to create.
-#[derive(Debug, Clone)]
-pub struct NewFolder {
-    pub parent: Option<i64>,
-    pub name: String,
-    /// What decides the folder's contents.
-    pub kind: Kind,
-    /// Topics a dynamic folder matches; empty for a manual one.
-    pub topics: Vec<String>,
-}
-
-impl NewFolder {
-    /// An empty manual folder.
-    pub fn new(parent: Option<i64>, name: impl Into<String>) -> Self {
-        Self {
-            parent,
-            name: name.into(),
-            kind: Kind::Manual,
-            topics: Vec::new(),
-        }
-    }
-}
 
 /// Every folder, by parent and then by position.
 pub async fn list(db: &Db) -> Result<Vec<Folder>, Error> {
@@ -105,144 +32,175 @@ pub async fn list(db: &Db) -> Result<Vec<Folder>, Error> {
     .await
 }
 
+pub async fn get(db: &Db, id: i64) -> Result<Option<Folder>, Error> {
+    db.call(move |connection| get_in(connection, id)).await
+}
+
 /// Add a folder at the end of its siblings.
 pub async fn create(db: &Db, folder: NewFolder, now: i64) -> Result<Folder, Error> {
-    db.call(move |connection| {
+    db.transaction(move |transaction| {
+        let name = folder.name.trim().to_owned();
+        if name.is_empty() {
+            return Err(Error::Invalid("a folder needs a name".to_owned()));
+        }
         if folder.kind == Kind::Manual && !folder.topics.is_empty() {
             return Err(Error::Invalid(
                 "only a dynamic folder matches topics".to_owned(),
             ));
         }
 
-        let transaction = connection.transaction()?;
         let position: i64 = transaction.query_row(
             "SELECT coalesce(max(position) + 1, 0) FROM folder WHERE parent_id IS ?1",
-            params![folder.parent],
+            params![folder.parent_id],
             |row| row.get(0),
         )?;
         let sql = format!(
             "INSERT INTO folder (parent_id, name, kind, position, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5) RETURNING {COLUMNS}"
         );
-        let mut stored = transaction.query_row(
+        let stored = transaction.query_row(
             &sql,
-            params![folder.parent, folder.name, folder.kind, position, now],
+            params![folder.parent_id, name, folder.kind.as_str(), position, now],
             from_row,
         )?;
 
         if !folder.topics.is_empty() {
-            for topic in topics::resolve(&transaction, &folder.topics, now)? {
-                transaction.execute(
-                    "INSERT INTO folder_topic (folder_id, topic_id) VALUES (?1, ?2)",
-                    params![stored.id, topic.id],
-                )?;
-            }
-            stored.topics = topics_of_folder(&transaction, stored.id)?;
+            replace_topics(transaction, stored.id, &folder.topics, now)?;
         }
-
-        transaction.commit()?;
+        let stored = get_in(transaction, stored.id)?.ok_or(Error::NotFound)?;
         Ok(stored)
     })
     .await
 }
 
-/// Rename one folder.
-pub async fn rename(db: &Db, id: i64, name: &str) -> Result<Folder, Error> {
-    let name = name.to_owned();
-    db.call(move |connection| {
-        let sql = format!("UPDATE folder SET name = ?1 WHERE id = ?2 RETURNING {COLUMNS}");
-        match connection
-            .query_row(&sql, params![name, id], from_row)
-            .optional()?
-        {
-            Some(mut folder) => {
-                folder.topics = topics_of_folder(connection, id)?;
-                Ok(folder)
-            }
-            None => Err(Error::NotFound),
-        }
-    })
-    .await
-}
+pub async fn update(db: &Db, id: i64, change: FolderChange, now: i64) -> Result<Folder, Error> {
+    db.transaction(move |transaction| {
+        let current = get_in(transaction, id)?.ok_or(Error::NotFound)?;
 
-/// Replace the topics a dynamic folder matches and return the new set.
-///
-/// Names are trimmed, matched case insensitively and deduplicated, and blank
-/// ones are dropped.
-pub async fn set_topics(
-    db: &Db,
-    id: i64,
-    names: Vec<String>,
-    now: i64,
-) -> Result<Vec<Topic>, Error> {
-    db.call(move |connection| {
-        let transaction = connection.transaction()?;
-        if kind(&transaction, id)? != Kind::Dynamic {
+        let name = match change.name {
+            Some(name) => {
+                let name = name.trim().to_owned();
+                if name.is_empty() {
+                    return Err(Error::Invalid("a folder needs a name".to_owned()));
+                }
+                Some(name)
+            }
+            None => None,
+        };
+        if let Some(topics) = change.topics.as_ref()
+            && current.kind != Kind::Dynamic
+            && !topics.is_empty()
+        {
             return Err(Error::Invalid(
                 "only a dynamic folder matches topics".to_owned(),
             ));
         }
 
-        let wanted = topics::resolve(&transaction, &names, now)?;
-        let existing: Vec<i64> = {
-            let mut statement =
-                transaction.prepare("SELECT topic_id FROM folder_topic WHERE folder_id = ?1")?;
-            let rows = statement.query_map([id], |row| row.get(0))?;
-            rows.collect::<Result<_, _>>()?
-        };
-        for topic_id in &existing {
-            if !wanted.iter().any(|topic| topic.id == *topic_id) {
-                transaction.execute(
-                    "DELETE FROM folder_topic WHERE folder_id = ?1 AND topic_id = ?2",
-                    params![id, topic_id],
-                )?;
-            }
-        }
-        for topic in &wanted {
-            if !existing.contains(&topic.id) {
-                transaction.execute(
-                    "INSERT INTO folder_topic (folder_id, topic_id) VALUES (?1, ?2)",
-                    params![id, topic.id],
-                )?;
-            }
-        }
-
-        let topics = topics_of_folder(&transaction, id)?;
-        transaction.commit()?;
-        Ok(topics)
-    })
-    .await
-}
-
-/// Move a folder under `parent` and put it at `position` among its siblings.
-pub async fn place(db: &Db, id: i64, parent: Option<i64>, position: usize) -> Result<(), Error> {
-    db.call(move |connection| {
-        let transaction = connection.transaction()?;
+        let parent = change.parent_id.unwrap_or(current.parent_id);
         if let Some(parent) = parent
-            && inside(&transaction, id, parent)?
+            && inside(transaction, id, parent)?
         {
             return Err(Error::Invalid(
                 "a folder cannot move inside itself".to_owned(),
             ));
         }
 
-        let changed = transaction.execute(
-            "UPDATE folder SET parent_id = ?1 WHERE id = ?2",
-            params![parent, id],
-        )?;
-        if changed == 0 {
-            return Err(Error::NotFound);
+        let mut sets: Vec<&str> = Vec::new();
+        let mut args: Vec<rusqlite::types::Value> = Vec::new();
+        if let Some(name) = name {
+            sets.push("name = ?");
+            args.push(rusqlite::types::Value::Text(name));
+        }
+        if change.parent_id.is_some() {
+            sets.push("parent_id = ?");
+            args.push(match parent {
+                Some(parent) => rusqlite::types::Value::Integer(parent),
+                None => rusqlite::types::Value::Null,
+            });
+        }
+        if !sets.is_empty() {
+            args.push(rusqlite::types::Value::Integer(id));
+            transaction.execute(
+                &format!("UPDATE folder SET {} WHERE id = ?", sets.join(", ")),
+                rusqlite::params_from_iter(args),
+            )?;
         }
 
-        renumber(&transaction, Placed::Folders, parent, id, position)?;
-        transaction.commit()?;
-        Ok(())
+        if change.parent_id.is_some() || change.position.is_some() {
+            let position = match change.position {
+                Some(position) => position,
+                None => {
+                    let count: i64 = transaction.query_row(
+                        "SELECT count(*) FROM folder WHERE parent_id IS ?1 AND id <> ?2",
+                        params![parent, id],
+                        |row| row.get(0),
+                    )?;
+                    count as usize
+                }
+            };
+            renumber(transaction, Placed::Folders, parent, id, position)?;
+        }
+
+        if let Some(topics) = change.topics {
+            replace_topics(transaction, id, &topics, now)?;
+        }
+
+        let stored = get_in(transaction, id)?.ok_or(Error::NotFound)?;
+        Ok(stored)
     })
     .await
 }
 
-/// Remove one folder; its child folders go with it and its bookmarks become
-/// unfiled.
+pub async fn rename(db: &Db, id: i64, name: &str) -> Result<Folder, Error> {
+    update(
+        db,
+        id,
+        FolderChange {
+            name: Some(name.to_owned()),
+            ..FolderChange::default()
+        },
+        0,
+    )
+    .await
+}
+
+/// Replace the topics a dynamic folder matches and return the new set.
+pub async fn set_topics(
+    db: &Db,
+    id: i64,
+    names: Vec<String>,
+    now: i64,
+) -> Result<Vec<Topic>, Error> {
+    Ok(update(
+        db,
+        id,
+        FolderChange {
+            topics: Some(names),
+            ..FolderChange::default()
+        },
+        now,
+    )
+    .await?
+    .topics)
+}
+
+/// Move a folder under `parent` and put it at `position` among its siblings.
+pub async fn place(db: &Db, id: i64, parent: Option<i64>, position: usize) -> Result<(), Error> {
+    update(
+        db,
+        id,
+        FolderChange {
+            parent_id: Some(parent),
+            position: Some(position),
+            ..FolderChange::default()
+        },
+        0,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Delete a folder and its children, leaving their bookmarks unfiled.
 pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
     db.call(move |connection| {
         let changed = connection.execute("DELETE FROM folder WHERE id = ?1", [id])?;
@@ -264,16 +222,59 @@ pub(super) fn file_into(connection: &Connection, id: i64) -> Result<(), Error> {
     }
 }
 
-/// What kind of folder `id` is.
 pub(super) fn kind(connection: &Connection, id: i64) -> Result<Kind, Error> {
-    match connection
-        .query_row("SELECT kind FROM folder WHERE id = ?1", [id], |row| {
-            row.get(0)
-        })
-        .optional()?
-    {
-        Some(kind) => Ok(kind),
+    match get_in(connection, id)? {
+        Some(folder) => Ok(folder.kind),
         None => Err(Error::NotFound),
+    }
+}
+
+fn replace_topics(
+    connection: &Connection,
+    id: i64,
+    names: &[String],
+    now: i64,
+) -> Result<(), Error> {
+    if kind(connection, id)? != Kind::Dynamic {
+        return Err(Error::Invalid(
+            "only a dynamic folder matches topics".to_owned(),
+        ));
+    }
+
+    let wanted = topics::resolve(connection, names, now)?;
+    let existing: Vec<i64> = {
+        let mut statement =
+            connection.prepare("SELECT topic_id FROM folder_topic WHERE folder_id = ?1")?;
+        let rows = statement.query_map([id], |row| row.get(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    for topic_id in &existing {
+        if !wanted.iter().any(|topic| topic.id == *topic_id) {
+            connection.execute(
+                "DELETE FROM folder_topic WHERE folder_id = ?1 AND topic_id = ?2",
+                params![id, topic_id],
+            )?;
+        }
+    }
+    for topic in &wanted {
+        if !existing.contains(&topic.id) {
+            connection.execute(
+                "INSERT INTO folder_topic (folder_id, topic_id) VALUES (?1, ?2)",
+                params![id, topic.id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn get_in(connection: &Connection, id: i64) -> Result<Option<Folder>, Error> {
+    let sql = format!("SELECT {COLUMNS} FROM folder WHERE id = ?1");
+    match connection.query_row(&sql, [id], from_row).optional()? {
+        Some(mut folder) => {
+            folder.topics = topics_of_folder(connection, id)?;
+            Ok(Some(folder))
+        }
+        None => Ok(None),
     }
 }
 
@@ -329,7 +330,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Folder> {
         id: row.get(0)?,
         parent_id: row.get(1)?,
         name: row.get(2)?,
-        kind: row.get(3)?,
+        kind: named(row, 3, "folder kind", Kind::parse)?,
         position: row.get(4)?,
         created_at: row.get(5)?,
         topics: Vec::new(),

@@ -8,7 +8,8 @@ use lockbox_store::{
 };
 use lockbox_types::{
     entry::Filter,
-    feed::{DEFAULT_TIMEOUT_SECONDS, FeedChange, Kind, NewFeed, Refresh, Source, Visibility},
+    feed::{DEFAULT_TIMEOUT_SECONDS, FeedChange, Kind, NewFeed, Refresh, Source},
+    visibility::Visibility,
 };
 
 #[tokio::test]

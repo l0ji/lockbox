@@ -4,6 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, typ
 
 use lockbox_types::entry::{Entry, EntrySummary, Filter, NewEntry};
 
+use super::search_query;
 use crate::{Db, Error};
 
 /// Columns a list returns, in the order [`from_row`] reads them. The body is
@@ -189,11 +190,9 @@ fn page(
             " AND e.archived_at IS NULL"
         });
     }
-    if let Some(query) = &filter.query
-        && !query.trim().is_empty()
-    {
+    if let Some(query) = filter.query.as_deref().and_then(search_query) {
         sql.push_str(" AND e.id IN (SELECT rowid FROM entry_search WHERE entry_search MATCH ?)");
-        args.push(Value::Text(query.clone()));
+        args.push(Value::Text(query));
     }
     if let Some(cursor) = after {
         sql.push_str(" AND (e.sort_at < ? OR (e.sort_at = ? AND e.id < ?))");

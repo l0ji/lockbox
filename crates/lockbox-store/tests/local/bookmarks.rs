@@ -4,13 +4,13 @@ use crate::common::Temp;
 use crate::fixtures::{bookmark, listed, open};
 use lockbox_store::{
     Error,
-    local::{
-        bookmarks::{self, NewBookmark, Scope},
-        folders::{self, NewFolder},
-        tags, topics,
-    },
+    local::{bookmarks, folders, tags, topics},
 };
-use lockbox_types::feed::Visibility;
+use lockbox_types::{
+    bookmark::{BookmarkChange, Filter, NewBookmark, Scope},
+    folder::NewFolder,
+    visibility::Visibility,
+};
 
 #[tokio::test]
 async fn saves_a_bookmark() {
@@ -27,6 +27,8 @@ async fn saves_a_bookmark() {
     )
     .await
     .expect("save bookmark");
+    assert!(saved.created);
+    let saved = saved.bookmark;
 
     assert_eq!(saved.url, "https://example.com/a");
     assert_eq!(saved.canonical_url, "https://example.com/a");
@@ -38,10 +40,42 @@ async fn saves_a_bookmark() {
     assert_eq!(saved.created_at, 100);
     assert_eq!(saved.updated_at, 100);
     assert_eq!(saved.visibility, Visibility::Public);
+    assert!(saved.topics.is_empty());
     assert_eq!(
         bookmarks::get(&db, saved.id).await.expect("read bookmark"),
         Some(saved)
     );
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn saves_the_topics_it_was_given() {
+    let temp = Temp::new("save-topic");
+    let db = open(&temp);
+
+    let saved = bookmarks::create(
+        &db,
+        NewBookmark {
+            topics: vec!["Rust".to_owned(), "databases".to_owned()],
+            ..NewBookmark::new("https://example.com/a", "Example", Visibility::Public)
+        },
+        100,
+    )
+    .await
+    .expect("save bookmark")
+    .bookmark;
+    let names: Vec<&str> = saved
+        .topics
+        .iter()
+        .map(|topic| topic.name.as_str())
+        .collect();
+    assert_eq!(names, ["databases", "Rust"]);
+
+    let listed = bookmarks::list(&db, &Filter::default(), None, usize::MAX)
+        .await
+        .expect("list bookmarks");
+    assert_eq!(listed.items[0].topics.len(), 2);
+    assert_eq!(topics::list(&db).await.expect("list topics").len(), 2);
     db.close().await.expect("close database");
 }
 
@@ -57,17 +91,25 @@ async fn keeps_one_bookmark_per_url() {
     )
     .await
     .expect("save bookmark");
+    assert!(first.created);
+    let first = first.bookmark;
     let same = bookmarks::create(
         &db,
-        NewBookmark::new("https://example.com/a", "Other", Visibility::Public),
+        NewBookmark {
+            topics: vec!["Other".to_owned()],
+            ..NewBookmark::new("https://example.com/a", "Other", Visibility::Public)
+        },
         200,
     )
     .await
     .expect("save the same link again");
+    assert!(!same.created);
+    let same = same.bookmark;
 
     assert_eq!(same.id, first.id);
     assert_eq!(same.title, "Example");
     assert_eq!(same.created_at, 100);
+    assert!(same.topics.is_empty(), "a second save does not retag");
 
     // The canonical address decides, not the one that was typed
     let canonical = bookmarks::create(
@@ -84,8 +126,9 @@ async fn keeps_one_bookmark_per_url() {
     )
     .await
     .expect("save the canonical address");
-    assert_eq!(canonical.id, first.id);
-    assert_eq!(listed(&db, bookmarks::Filter::default()).await.len(), 1);
+    assert!(!canonical.created);
+    assert_eq!(canonical.bookmark.id, first.id);
+    assert_eq!(listed(&db, Filter::default()).await.len(), 1);
     db.close().await.expect("close database");
 }
 
@@ -101,9 +144,9 @@ async fn keeps_the_order_inside_a_folder() {
     bookmark(&db, "https://b.example", Some(folder), 21).await;
     let c = bookmark(&db, "https://c.example", Some(folder), 22).await;
 
-    let filter = bookmarks::Filter {
+    let filter = Filter {
         folder: Scope::Folder(folder),
-        ..bookmarks::Filter::default()
+        ..Filter::default()
     };
     let page = bookmarks::list(&db, &filter, None, usize::MAX)
         .await
@@ -175,9 +218,9 @@ async fn moves_a_bookmark_between_folders() {
 
     let two_page = bookmarks::list(
         &db,
-        &bookmarks::Filter {
+        &Filter {
             folder: Scope::Folder(two),
-            ..bookmarks::Filter::default()
+            ..Filter::default()
         },
         None,
         usize::MAX,
@@ -191,9 +234,9 @@ async fn moves_a_bookmark_between_folders() {
     assert_eq!(
         listed(
             &db,
-            bookmarks::Filter {
+            Filter {
                 folder: Scope::Folder(one),
-                ..bookmarks::Filter::default()
+                ..Filter::default()
             }
         )
         .await,
@@ -210,7 +253,7 @@ async fn pages_through_bookmarks() {
         bookmark(&db, &format!("https://{name}.example"), None, n as i64 * 10).await;
     }
 
-    let first = bookmarks::list(&db, &bookmarks::Filter::default(), None, 2)
+    let first = bookmarks::list(&db, &Filter::default(), None, 2)
         .await
         .expect("first page");
     assert_eq!(
@@ -221,7 +264,7 @@ async fn pages_through_bookmarks() {
 
     // A newer bookmark lands above the cursor, a deleted one was never served
     bookmark(&db, "https://f.example", None, 60).await;
-    let all = bookmarks::list(&db, &bookmarks::Filter::default(), None, usize::MAX)
+    let all = bookmarks::list(&db, &Filter::default(), None, usize::MAX)
         .await
         .expect("list bookmarks");
     let oldest = all
@@ -234,7 +277,7 @@ async fn pages_through_bookmarks() {
         .await
         .expect("delete bookmark");
 
-    let second = bookmarks::list(&db, &bookmarks::Filter::default(), Some(cursor), 10)
+    let second = bookmarks::list(&db, &Filter::default(), Some(cursor), 10)
         .await
         .expect("second page");
     assert_eq!(
@@ -263,27 +306,27 @@ async fn filters_bookmarks() {
     assert_eq!(
         listed(
             &db,
-            bookmarks::Filter {
+            Filter {
                 folder: Scope::Unfiled,
-                ..bookmarks::Filter::default()
+                ..Filter::default()
             }
         )
         .await,
-        ["https://unfiled.example", "https://archived.example"]
+        ["https://archived.example", "https://unfiled.example"]
     );
     assert_eq!(
         listed(
             &db,
-            bookmarks::Filter {
+            Filter {
                 folder: Scope::Folder(folder),
-                ..bookmarks::Filter::default()
+                ..Filter::default()
             }
         )
         .await,
         ["https://filed.example"]
     );
     assert_eq!(
-        listed(&db, bookmarks::Filter::default()).await,
+        listed(&db, Filter::default()).await,
         [
             "https://archived.example",
             "https://filed.example",
@@ -293,9 +336,9 @@ async fn filters_bookmarks() {
     assert_eq!(
         listed(
             &db,
-            bookmarks::Filter {
+            Filter {
                 archived: Some(false),
-                ..bookmarks::Filter::default()
+                ..Filter::default()
             }
         )
         .await,
@@ -304,9 +347,9 @@ async fn filters_bookmarks() {
     assert_eq!(
         listed(
             &db,
-            bookmarks::Filter {
+            Filter {
                 archived: Some(true),
-                ..bookmarks::Filter::default()
+                ..Filter::default()
             }
         )
         .await,
@@ -324,11 +367,12 @@ async fn changes_a_bookmark() {
     let changed = bookmarks::update(
         &db,
         saved,
-        bookmarks::Change {
+        BookmarkChange {
             title: Some("Better".to_owned()),
-            note: Some("A note".to_owned()),
+            note: Some(Some("A note".to_owned())),
             visibility: Some(Visibility::Private),
-            ..bookmarks::Change::default()
+            archived: Some(true),
+            ..BookmarkChange::default()
         },
         20,
     )
@@ -337,6 +381,7 @@ async fn changes_a_bookmark() {
     assert_eq!(changed.title, "Better");
     assert_eq!(changed.note.as_deref(), Some("A note"));
     assert_eq!(changed.visibility, Visibility::Private);
+    assert_eq!(changed.archived_at, Some(20));
     assert_eq!(changed.url, "https://example.com/a");
     assert_eq!(changed.updated_at, 20);
 
@@ -344,9 +389,9 @@ async fn changes_a_bookmark() {
     let changed = bookmarks::update(
         &db,
         saved,
-        bookmarks::Change {
-            note: Some("  ".to_owned()),
-            ..bookmarks::Change::default()
+        BookmarkChange {
+            note: Some(None),
+            ..BookmarkChange::default()
         },
         30,
     )
@@ -354,10 +399,33 @@ async fn changes_a_bookmark() {
     .expect("clear note");
     assert_eq!(changed.note, None);
 
-    let error = bookmarks::update(&db, 9_999, bookmarks::Change::default(), 40)
+    let error = bookmarks::update(&db, 9_999, BookmarkChange::default(), 40)
         .await
         .expect_err("no such bookmark");
     assert!(matches!(error, Error::NotFound), "{error}");
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn refuses_an_address_which_is_taken() {
+    let temp = Temp::new("taken-address");
+    let db = open(&temp);
+    let one = bookmark(&db, "https://one.example", None, 10).await;
+    bookmark(&db, "https://two.example", None, 11).await;
+
+    let error = bookmarks::update(
+        &db,
+        one,
+        BookmarkChange {
+            url: Some("https://two.example".to_owned()),
+            canonical_url: Some("https://two.example".to_owned()),
+            ..BookmarkChange::default()
+        },
+        20,
+    )
+    .await
+    .expect_err("duplicate address");
+    assert!(matches!(error, Error::Conflict(_)), "{error}");
     db.close().await.expect("close database");
 }
 
@@ -398,14 +466,6 @@ async fn deletes_a_bookmark_and_its_topics() {
     db.close().await.expect("close database");
 }
 
-/// Titles of a bookmark page, in order.
-fn bookmark_titles(page: &bookmarks::Page) -> Vec<&str> {
-    page.items
-        .iter()
-        .map(|bookmark| bookmark.title.as_str())
-        .collect()
-}
-
 #[tokio::test]
 async fn keeps_the_visibility_it_was_given() {
     let temp = Temp::new("visibility");
@@ -417,7 +477,8 @@ async fn keeps_the_visibility_it_was_given() {
         10,
     )
     .await
-    .expect("save bookmark");
+    .expect("save bookmark")
+    .bookmark;
     assert_eq!(private.visibility, Visibility::Private);
 
     let public = bookmarks::create(
@@ -426,7 +487,8 @@ async fn keeps_the_visibility_it_was_given() {
         20,
     )
     .await
-    .expect("save bookmark");
+    .expect("save bookmark")
+    .bookmark;
     assert_eq!(public.visibility, Visibility::Public);
 
     // A later save does not change what is already there
@@ -436,4 +498,65 @@ async fn keeps_the_visibility_it_was_given() {
         .expect("bookmark");
     assert_eq!(stored.visibility, Visibility::Private);
     db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn searches_every_word_literally() {
+    let temp = Temp::new("search-bookmark");
+    let db = open(&temp);
+    bookmark(&db, "https://example.com/a", None, 10).await;
+    let saved = bookmarks::list(&db, &Filter::default(), None, 10)
+        .await
+        .expect("list bookmarks")
+        .items
+        .remove(0)
+        .id;
+    bookmarks::update(
+        &db,
+        saved,
+        BookmarkChange {
+            title: Some("Rust and \"databases\"".to_owned()),
+            ..BookmarkChange::default()
+        },
+        20,
+    )
+    .await
+    .expect("rename");
+
+    for query in ["Rust databases", "\"databases\"", "rust"] {
+        let page = bookmarks::list(
+            &db,
+            &Filter {
+                query: Some(query.to_owned()),
+                ..Filter::default()
+            },
+            None,
+            10,
+        )
+        .await
+        .expect("search");
+        assert_eq!(page.items.len(), 1, "{query}");
+    }
+
+    // Punctuation cannot turn into an FTS syntax error
+    let page = bookmarks::list(
+        &db,
+        &Filter {
+            query: Some("\"".to_owned()),
+            ..Filter::default()
+        },
+        None,
+        10,
+    )
+    .await
+    .expect("a quote is a term");
+    assert!(page.items.is_empty());
+    db.close().await.expect("close database");
+}
+
+fn bookmark_titles(page: &bookmarks::Page) -> Vec<&str> {
+    page.items
+        .iter()
+        .map(|bookmark| bookmark.title.as_str())
+        .collect()
 }

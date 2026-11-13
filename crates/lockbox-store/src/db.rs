@@ -1,11 +1,11 @@
 //! The database connection thread, its pragmas and the migrations.
 //!
-//! A [`Db`] owns one [`Connection`] on a thread of its own. [`Db::call`] is the
-//! only way to touch it, so blocking SQLite work never runs on a runtime worker.
+//! A [`Db`] owns one [`Connection`] on a thread of its own. Calls and transactions
+//! run on that thread, keeping blocking SQLite work off runtime workers.
 
 use std::{fmt, io, path::Path, thread};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
 use tokio::sync::{mpsc, oneshot};
 
 /// Number of calls that may wait for the database thread.
@@ -22,6 +22,8 @@ pub enum Error {
     TooNew { found: u32, known: u32 },
     /// Could not find the row requested by the call.
     NotFound,
+    /// A unique value is already stored.
+    Conflict(String),
     /// The database rejected the call.
     Invalid(String),
     /// The database thread was closed.
@@ -37,6 +39,7 @@ impl fmt::Display for Error {
                 write!(f, "database version {found}, expected version {known}")
             }
             Self::NotFound => write!(f, "row not found"),
+            Self::Conflict(message) => write!(f, "{message}"),
             Self::Invalid(message) => write!(f, "{message}"),
             Self::Closed => write!(f, "database thread is gone"),
         }
@@ -48,16 +51,30 @@ impl std::error::Error for Error {
         match self {
             Self::Sqlite(error) => Some(error),
             Self::Io(error) => Some(error),
-            Self::TooNew { .. } | Self::NotFound | Self::Invalid(_) | Self::Closed => None,
+            Self::TooNew { .. }
+            | Self::NotFound
+            | Self::Conflict(_)
+            | Self::Invalid(_)
+            | Self::Closed => None,
         }
     }
 }
 
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
-        // A constraint violation is the caller's mistake, not a database fault
         match error.sqlite_error_code() {
-            Some(rusqlite::ErrorCode::ConstraintViolation) => Self::Invalid(error.to_string()),
+            Some(rusqlite::ErrorCode::ConstraintViolation) => match &error {
+                rusqlite::Error::SqliteFailure(inner, _)
+                    if matches!(
+                        inner.extended_code,
+                        rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
+                            | rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY
+                    ) =>
+                {
+                    Self::Conflict(error.to_string())
+                }
+                _ => Self::Invalid(error.to_string()),
+            },
             _ => Self::Sqlite(error),
         }
     }
@@ -133,6 +150,21 @@ impl Db {
             Ok(result) => result,
             Err(_) => Err(Error::Closed),
         }
+    }
+
+    /// Runs a transaction on the database thread, committing on success.
+    pub async fn transaction<T, F>(&self, call: F) -> Result<T, Error>
+    where
+        F: FnOnce(&Transaction<'_>) -> Result<T, Error> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.call(move |connection| {
+            let transaction = connection.transaction()?;
+            let result = call(&transaction)?;
+            transaction.commit()?;
+            Ok(result)
+        })
+        .await
     }
 
     /// Stop the database thread and wait for it to close the connection.

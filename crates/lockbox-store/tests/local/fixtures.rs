@@ -3,15 +3,13 @@
 use crate::common::Temp;
 use lockbox_store::{
     Db,
-    local::{
-        self,
-        bookmarks::{self, NewBookmark},
-        entries, feeds,
-    },
+    local::{self, bookmarks, entries, feeds},
 };
 use lockbox_types::{
-    entry::{Filter, NewEntry},
-    feed::{NewFeed, Refresh, Visibility},
+    bookmark::{Filter, NewBookmark},
+    entry::{self, NewEntry},
+    feed::{NewFeed, Refresh},
+    visibility::Visibility,
 };
 
 /// Open a local database inside the temporary directory.
@@ -67,7 +65,7 @@ pub(super) fn titles(page: &entries::Page) -> Vec<&str> {
 }
 
 /// Titles of every entry a filter matches.
-pub(super) async fn list(db: &Db, filter: Filter) -> Vec<String> {
+pub(super) async fn list(db: &Db, filter: entry::Filter) -> Vec<String> {
     entries::list(db, &filter, None, usize::MAX)
         .await
         .expect("list entries")
@@ -89,11 +87,12 @@ pub(super) async fn bookmark(db: &Db, url: &str, folder: Option<i64>, now: i64) 
     )
     .await
     .expect("save bookmark")
+    .bookmark
     .id
 }
 
 /// Titles of every bookmark a filter matches.
-pub(super) async fn listed(db: &Db, filter: bookmarks::Filter) -> Vec<String> {
+pub(super) async fn listed(db: &Db, filter: Filter) -> Vec<String> {
     bookmarks::list(db, &filter, None, usize::MAX)
         .await
         .expect("list bookmarks")

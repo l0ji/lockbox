@@ -158,7 +158,13 @@ async fn calls_run_on_one_thread() {
         .await
         .expect("second call");
 
+    let transaction = db
+        .transaction(|_| Ok(thread::current().id()))
+        .await
+        .expect("transaction call");
+
     assert_eq!(first, second);
+    assert_eq!(first, transaction);
     assert_ne!(first, thread::current().id());
     db.close().await.expect("close database");
 }
@@ -182,6 +188,86 @@ async fn an_error_does_not_stop_the_thread() {
         .await
         .expect("the database still answers");
     assert_eq!(rows, 0);
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn commits_a_successful_transaction() {
+    let temp = Temp::new("commit");
+    let db = Db::open(&temp.db(), &["CREATE TABLE item (value INTEGER);"]).expect("open database");
+    let value = 42;
+    let inserted = db
+        .transaction(move |transaction| {
+            Ok(transaction.execute("INSERT INTO item VALUES (?1)", [value])?)
+        })
+        .await
+        .expect("commit transaction");
+    assert_eq!(inserted, 1);
+
+    let stored: i64 = db
+        .call(
+            |connection| Ok(connection.query_row("SELECT value FROM item", [], |row| row.get(0))?),
+        )
+        .await
+        .expect("read committed row");
+    assert_eq!(stored, value);
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn rolls_back_a_failed_transaction() {
+    let temp = Temp::new("rollback");
+    let db = Db::open(&temp.db(), &["CREATE TABLE item (value INTEGER);"]).expect("open database");
+    let error = db
+        .transaction::<(), _>(|transaction| {
+            transaction.execute("INSERT INTO item VALUES (1)", [])?;
+            Err(Error::Invalid("cancelled".to_owned()))
+        })
+        .await
+        .expect_err("roll back transaction");
+    assert!(matches!(error, Error::Invalid(message) if message == "cancelled"));
+
+    let count: i64 = db
+        .transaction(|transaction| {
+            Ok(transaction.query_row("SELECT count(*) FROM item", [], |row| row.get(0))?)
+        })
+        .await
+        .expect("run another transaction");
+    assert_eq!(count, 0);
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn reports_a_failed_commit_and_rolls_back() {
+    let temp = Temp::new("commit-error");
+    let db = Db::open(
+        &temp.db(),
+        &["CREATE TABLE parent (id INTEGER PRIMARY KEY);
+           CREATE TABLE child (
+               parent_id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED
+           );"],
+    )
+    .expect("open database");
+    let error = db
+        .transaction(|transaction| {
+            transaction.execute("INSERT INTO child VALUES (1)", [])?;
+            Ok(())
+        })
+        .await
+        .expect_err("commit must fail the deferred foreign key check");
+    assert!(matches!(error, Error::Invalid(_)), "{error}");
+
+    let count: i64 = db
+        .transaction(|transaction| {
+            let count =
+                transaction.query_row("SELECT count(*) FROM child", [], |row| row.get(0))?;
+            transaction.execute("INSERT INTO parent VALUES (1)", [])?;
+            transaction.execute("INSERT INTO child VALUES (1)", [])?;
+            Ok(count)
+        })
+        .await
+        .expect("commit another transaction");
+    assert_eq!(count, 0);
     db.close().await.expect("close database");
 }
 

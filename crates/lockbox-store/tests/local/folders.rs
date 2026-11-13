@@ -4,13 +4,13 @@ use crate::common::Temp;
 use crate::fixtures::{bookmark, listed, open};
 use lockbox_store::{
     Error,
-    local::{
-        bookmarks::{self, NewBookmark, Scope},
-        folders::{self, Kind, NewFolder},
-        tags,
-    },
+    local::{bookmarks, folders, tags},
 };
-use lockbox_types::feed::Visibility;
+use lockbox_types::{
+    bookmark::{Filter, NewBookmark, Scope},
+    folder::{FolderChange, Kind, NewFolder},
+    visibility::Visibility,
+};
 
 #[tokio::test]
 async fn keeps_folders_in_a_tree() {
@@ -136,9 +136,9 @@ async fn matches_topics_in_a_dynamic_folder() {
         .await
         .expect("tag");
 
-    let scope = bookmarks::Filter {
+    let scope = Filter {
         folder: Scope::Folder(dynamic.id),
-        ..bookmarks::Filter::default()
+        ..Filter::default()
     };
     assert_eq!(
         listed(&db, scope.clone()).await,
@@ -229,5 +229,66 @@ async fn manual_folders_have_no_topics() {
         .await
         .expect_err("a manual folder has no topics");
     assert!(matches!(error, Error::Invalid(_)), "{error}");
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn changes_a_folder_in_one_call() {
+    let temp = Temp::new("change-folder");
+    let db = open(&temp);
+    let root = folders::create(&db, NewFolder::new(None, "Reading"), 10)
+        .await
+        .expect("create folder");
+    let dynamic = folders::create(
+        &db,
+        NewFolder {
+            kind: Kind::Dynamic,
+            ..NewFolder::new(Some(root.id), "Rust")
+        },
+        11,
+    )
+    .await
+    .expect("create dynamic folder");
+    let archive = folders::create(&db, NewFolder::new(None, "Archive"), 12)
+        .await
+        .expect("create folder");
+
+    let changed = folders::update(
+        &db,
+        dynamic.id,
+        FolderChange {
+            name: Some("Async".to_owned()),
+            parent_id: Some(Some(archive.id)),
+            position: Some(0),
+            topics: Some(vec!["Async".to_owned(), "Rust".to_owned()]),
+        },
+        20,
+    )
+    .await
+    .expect("change folder");
+    assert_eq!(changed.name, "Async");
+    assert_eq!(changed.parent_id, Some(archive.id));
+    assert_eq!(changed.position, 0);
+    assert_eq!(
+        changed
+            .topics
+            .iter()
+            .map(|topic| topic.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Async", "Rust"]
+    );
+
+    let error = folders::update(
+        &db,
+        archive.id,
+        FolderChange {
+            name: Some("Reading".to_owned()),
+            ..FolderChange::default()
+        },
+        30,
+    )
+    .await
+    .expect_err("duplicate folder");
+    assert!(matches!(error, Error::Conflict(_)), "{error}");
     db.close().await.expect("close database");
 }

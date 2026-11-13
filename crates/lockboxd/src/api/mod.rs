@@ -72,6 +72,7 @@ impl From<StoreError> for Failure {
     fn from(error: StoreError) -> Self {
         let code = match &error {
             StoreError::NotFound => Code::NotFound,
+            StoreError::Conflict(_) => Code::Conflict,
             StoreError::Invalid(_) => Code::Invalid,
             _ => Code::Internal,
         };

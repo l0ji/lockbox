@@ -2,13 +2,12 @@
 
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, types::Value};
 
-use lockbox_types::feed::Visibility;
-
-use super::{
-    Placed,
-    folders::{self, Kind},
-    named, renumber,
+use lockbox_types::{
+    bookmark::{Bookmark, BookmarkChange, Filter, NewBookmark, Scope},
+    visibility::Visibility,
 };
+
+use super::{Placed, folders, named, renumber, search_query, topics};
 use crate::{Db, Error};
 
 /// Columns that every bookmark query returns, in the order [`from_row`] reads
@@ -16,86 +15,11 @@ use crate::{Db, Error};
 const COLUMNS: &str = "id, url, canonical_url, title, note, folder_id, position, entry_id, \
      created_at, updated_at, archived_at, visibility";
 
-/// One saved link.
+/// A saved bookmark and whether it was newly created.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Bookmark {
-    pub id: i64,
-    pub url: String,
-    /// Address that decides whether the link is already saved.
-    pub canonical_url: String,
-    pub title: String,
-    pub note: Option<String>,
-    pub folder_id: Option<i64>,
-    pub position: i64,
-    /// Entry the bookmark was saved from, if any.
-    pub entry_id: Option<i64>,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub archived_at: Option<i64>,
-    pub visibility: Visibility,
-}
-
-/// A bookmark to save.
-#[derive(Debug, Clone)]
-pub struct NewBookmark {
-    pub url: String,
-    pub canonical_url: String,
-    pub title: String,
-    pub note: Option<String>,
-    pub folder_id: Option<i64>,
-    pub entry_id: Option<i64>,
-    pub visibility: Visibility,
-}
-
-impl NewBookmark {
-    /// A link saved under its own address, published depending on `visibility`.
-    pub fn new(url: impl Into<String>, title: impl Into<String>, visibility: Visibility) -> Self {
-        let url = url.into();
-        Self {
-            canonical_url: url.clone(),
-            url,
-            title: title.into(),
-            note: None,
-            folder_id: None,
-            entry_id: None,
-            visibility,
-        }
-    }
-}
-
-/// Bookmark settings the user can change. A `None` leaves the field alone.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Change {
-    pub url: Option<String>,
-    pub canonical_url: Option<String>,
-    pub title: Option<String>,
-    /// An empty note clears it.
-    pub note: Option<String>,
-    pub visibility: Option<Visibility>,
-}
-
-/// Which bookmarks a list looks at.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Scope {
-    /// Every bookmark.
-    #[default]
-    All,
-    /// Bookmarks that are not in a folder.
-    Unfiled,
-    /// Bookmarks filed in or matched by one folder.
-    Folder(i64),
-}
-
-/// Which bookmarks a list returns.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Filter {
-    pub folder: Scope,
-    /// Only bookmarks which are carrying this topic.
-    pub topic: Option<String>,
-    /// Show only archived bookmarks when true.
-    pub archived: Option<bool>,
-    /// Words to match against the title, note and URL.
-    pub query: Option<String>,
+pub struct Saved {
+    pub bookmark: Bookmark,
+    pub created: bool,
 }
 
 /// Position in a bookmark list that the next page starts after.
@@ -110,14 +34,21 @@ pub struct Cursor {
 /// One page of bookmarks.
 pub type Page = super::Page<Bookmark, Cursor>;
 
-/// Save a bookmark or return the one which is already saved under the same URL.
-pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark, Error> {
-    db.call(move |connection| {
-        let transaction = connection.transaction()?;
-        if let Some(folder) = bookmark.folder_id {
-            folders::file_into(&transaction, folder)?;
+/// Save a bookmark with its topics, or return the existing bookmark unchanged.
+pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Saved, Error> {
+    db.transaction(move |transaction| {
+        let title = bookmark.title.trim().to_owned();
+        if title.is_empty() {
+            return Err(Error::Invalid("a bookmark needs a title".to_owned()));
         }
-        transaction.execute(
+        if bookmark.canonical_url.trim().is_empty() {
+            return Err(Error::Invalid("a bookmark needs an address".to_owned()));
+        }
+
+        if let Some(folder) = bookmark.folder_id {
+            folders::file_into(transaction, folder)?;
+        }
+        let changed = transaction.execute(
             "INSERT INTO bookmark (
                  url, canonical_url, title, note, folder_id, position, entry_id,
                  visibility, created_at, updated_at
@@ -129,7 +60,7 @@ pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark
             params![
                 bookmark.url,
                 bookmark.canonical_url,
-                bookmark.title,
+                title,
                 bookmark.note,
                 bookmark.folder_id,
                 bookmark.entry_id,
@@ -137,29 +68,47 @@ pub async fn create(db: &Db, bookmark: NewBookmark, now: i64) -> Result<Bookmark
                 now,
             ],
         )?;
+        let created = changed == 1;
 
-        let sql = format!("SELECT {COLUMNS} FROM bookmark WHERE canonical_url = ?1");
-        let stored = transaction.query_row(&sql, [&bookmark.canonical_url], from_row)?;
-        transaction.commit()?;
-        Ok(stored)
+        if created {
+            let id: i64 = transaction.query_row(
+                "SELECT id FROM bookmark WHERE canonical_url = ?1",
+                [&bookmark.canonical_url],
+                |row| row.get(0),
+            )?;
+            if !bookmark.topics.is_empty() {
+                for topic in topics::resolve(transaction, &bookmark.topics, now)? {
+                    transaction.execute(
+                        "INSERT INTO bookmark_topic (bookmark_id, topic_id, tagged_at)
+                         VALUES (?1, ?2, ?3)",
+                        params![id, topic.id, now],
+                    )?;
+                }
+            }
+        }
+
+        let mut stored = transaction
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM bookmark WHERE canonical_url = ?1"),
+                [&bookmark.canonical_url],
+                from_row,
+            )
+            .optional()?
+            .ok_or(Error::NotFound)?;
+        stored.topics = topics::of_bookmark(transaction, stored.id)?;
+        Ok(Saved {
+            bookmark: stored,
+            created,
+        })
     })
     .await
 }
 
-/// Read one bookmark.
 pub async fn get(db: &Db, id: i64) -> Result<Option<Bookmark>, Error> {
-    db.call(move |connection| {
-        let sql = format!("SELECT {COLUMNS} FROM bookmark WHERE id = ?1");
-        Ok(connection.query_row(&sql, [id], from_row).optional()?)
-    })
-    .await
+    db.call(move |connection| get_in(connection, id)).await
 }
 
-/// List the bookmarks a filter matches.
-///
-/// The whole list is newest first, a manual folder keeps its saved order and a
-/// dynamic one lists what its topics match by recency. The cursor's key is
-/// whatever the order is built on.
+/// List matching bookmarks, newest first except within manually ordered folders.
 pub async fn list(
     db: &Db,
     filter: &Filter,
@@ -171,49 +120,90 @@ pub async fn list(
         .await
 }
 
-/// Change the settings of one bookmark and return it.
-pub async fn update(db: &Db, id: i64, change: Change, now: i64) -> Result<Bookmark, Error> {
-    db.call(move |connection| {
-        let mut sets = vec!["updated_at = ?"];
-        let mut args = vec![Value::Integer(now)];
+pub async fn update(db: &Db, id: i64, change: BookmarkChange, now: i64) -> Result<Bookmark, Error> {
+    db.transaction(move |transaction| {
+        let current = get_in(transaction, id)?.ok_or(Error::NotFound)?;
+
+        let mut sets: Vec<&str> = vec!["updated_at = ?"];
+        let mut args: Vec<Value> = vec![Value::Integer(now)];
 
         if let Some(url) = change.url {
+            let url = url.trim().to_owned();
+            if url.is_empty() {
+                return Err(Error::Invalid("a bookmark needs an address".to_owned()));
+            }
             sets.push("url = ?");
-            args.push(Value::Text(url));
-        }
-        if let Some(canonical_url) = change.canonical_url {
+            args.push(Value::Text(url.clone()));
+            sets.push("canonical_url = ?");
+            args.push(Value::Text(change.canonical_url.unwrap_or(url)));
+        } else if let Some(canonical_url) = change.canonical_url {
             sets.push("canonical_url = ?");
             args.push(Value::Text(canonical_url));
         }
+
         if let Some(title) = change.title {
+            let title = title.trim().to_owned();
+            if title.is_empty() {
+                return Err(Error::Invalid("a bookmark needs a title".to_owned()));
+            }
             sets.push("title = ?");
             args.push(Value::Text(title));
         }
         if let Some(note) = change.note {
             sets.push("note = ?");
-            args.push(match note.trim().is_empty() {
-                true => Value::Null,
-                false => Value::Text(note),
+            args.push(match note {
+                Some(note) if !note.trim().is_empty() => Value::Text(note),
+                _ => Value::Null,
             });
         }
         if let Some(visibility) = change.visibility {
             sets.push("visibility = ?");
             args.push(Value::Text(visibility.as_str().to_owned()));
         }
-
-        let sql = format!(
-            "UPDATE bookmark SET {} WHERE id = ? RETURNING {COLUMNS}",
-            sets.join(", ")
-        );
-        args.push(Value::Integer(id));
-
-        match connection
-            .query_row(&sql, params_from_iter(args), from_row)
-            .optional()?
-        {
-            Some(bookmark) => Ok(bookmark),
-            None => Err(Error::NotFound),
+        if let Some(archived) = change.archived {
+            sets.push("archived_at = ?");
+            args.push(match archived {
+                true => Value::Integer(now),
+                false => Value::Null,
+            });
         }
+
+        let folder = change.folder_id.unwrap_or(current.folder_id);
+        let moved = change.folder_id.is_some() && folder != current.folder_id;
+        if moved {
+            if let Some(folder) = folder {
+                folders::file_into(transaction, folder)?;
+            }
+            sets.push("folder_id = ?");
+            args.push(match folder {
+                Some(folder) => Value::Integer(folder),
+                None => Value::Null,
+            });
+        }
+
+        args.push(Value::Integer(id));
+        transaction.execute(
+            &format!("UPDATE bookmark SET {} WHERE id = ?", sets.join(", ")),
+            params_from_iter(args),
+        )?;
+
+        if moved || change.position.is_some() {
+            let position = match change.position {
+                Some(position) => position,
+                None => {
+                    let count: i64 = transaction.query_row(
+                        "SELECT count(*) FROM bookmark WHERE folder_id IS ?1 AND id <> ?2",
+                        params![folder, id],
+                        |row| row.get(0),
+                    )?;
+                    count as usize
+                }
+            };
+            renumber(transaction, Placed::Bookmarks, folder, id, position)?;
+        }
+
+        let stored = get_in(transaction, id)?.ok_or(Error::NotFound)?;
+        Ok(stored)
     })
     .await
 }
@@ -226,28 +216,20 @@ pub async fn place(
     position: usize,
     now: i64,
 ) -> Result<(), Error> {
-    db.call(move |connection| {
-        let transaction = connection.transaction()?;
-        if let Some(folder) = folder {
-            folders::file_into(&transaction, folder)?;
-        }
-
-        let changed = transaction.execute(
-            "UPDATE bookmark SET folder_id = ?1, updated_at = ?2 WHERE id = ?3",
-            params![folder, now, id],
-        )?;
-        if changed == 0 {
-            return Err(Error::NotFound);
-        }
-
-        renumber(&transaction, Placed::Bookmarks, folder, id, position)?;
-        transaction.commit()?;
-        Ok(())
-    })
-    .await
+    update(
+        db,
+        id,
+        BookmarkChange {
+            folder_id: Some(folder),
+            position: Some(position),
+            ..BookmarkChange::default()
+        },
+        now,
+    )
+    .await?;
+    Ok(())
 }
 
-/// Set or clear when a bookmark was archived.
 pub async fn mark_archived(db: &Db, id: i64, at: Option<i64>) -> Result<(), Error> {
     db.call(move |connection| {
         let changed = connection.execute(
@@ -274,6 +256,23 @@ pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
     .await
 }
 
+fn get_in(connection: &Connection, id: i64) -> Result<Option<Bookmark>, Error> {
+    match connection
+        .query_row(
+            &format!("SELECT {COLUMNS} FROM bookmark WHERE id = ?1"),
+            [id],
+            from_row,
+        )
+        .optional()?
+    {
+        Some(mut bookmark) => {
+            bookmark.topics = topics::of_bookmark(connection, id)?;
+            Ok(Some(bookmark))
+        }
+        None => Ok(None),
+    }
+}
+
 /// One page of a filter's bookmarks.
 fn page(
     connection: &Connection,
@@ -297,15 +296,15 @@ fn page(
         Scope::All => true,
         Scope::Unfiled => {
             sql.push_str(" AND b.folder_id IS NULL");
-            false
+            true
         }
         Scope::Folder(folder) => match folders::kind(connection, folder)? {
-            Kind::Manual => {
+            lockbox_types::folder::Kind::Manual => {
                 sql.push_str(" AND b.folder_id = ?");
                 args.push(Value::Integer(folder));
                 false
             }
-            Kind::Dynamic => {
+            lockbox_types::folder::Kind::Dynamic => {
                 sql.push_str(
                     " AND b.id IN (SELECT bt.bookmark_id FROM bookmark_topic bt
                      JOIN folder_topic ft ON ft.topic_id = bt.topic_id
@@ -325,20 +324,16 @@ fn page(
         );
         args.push(Value::Text(topic.clone()));
     }
-    if let Some(archived) = filter.archived {
-        sql.push_str(if archived {
-            " AND b.archived_at IS NOT NULL"
-        } else {
-            " AND b.archived_at IS NULL"
-        });
+    match filter.archived {
+        Some(true) => sql.push_str(" AND b.archived_at IS NOT NULL"),
+        Some(false) => sql.push_str(" AND b.archived_at IS NULL"),
+        None => {}
     }
-    if let Some(query) = &filter.query
-        && !query.trim().is_empty()
-    {
+    if let Some(query) = filter.query.as_deref().and_then(search_query) {
         sql.push_str(
             " AND b.id IN (SELECT rowid FROM bookmark_search WHERE bookmark_search MATCH ?)",
         );
-        args.push(Value::Text(query.clone()));
+        args.push(Value::Text(query));
     }
     if let Some(cursor) = after {
         sql.push_str(if recent {
@@ -377,6 +372,12 @@ fn page(
         None
     };
 
+    let ids: Vec<i64> = items.iter().map(|bookmark| bookmark.id).collect();
+    let mut topics = topics::of_bookmarks(connection, &ids)?;
+    for bookmark in &mut items {
+        bookmark.topics = topics.remove(&bookmark.id).unwrap_or_default();
+    }
+
     Ok(Page { items, next })
 }
 
@@ -395,5 +396,6 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Bookmark> {
         updated_at: row.get(9)?,
         archived_at: row.get(10)?,
         visibility: named(row, 11, "bookmark visibility", Visibility::parse)?,
+        topics: Vec::new(),
     })
 }

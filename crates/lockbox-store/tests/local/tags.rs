@@ -6,6 +6,7 @@ use lockbox_store::{
     Error,
     local::{bookmarks, tags, topics},
 };
+use lockbox_types::bookmark::Filter;
 
 #[tokio::test]
 async fn tags_a_bookmark() {
@@ -49,7 +50,7 @@ async fn tags_a_bookmark() {
     assert_eq!(names, ["Async", "Databases", "Rust"]);
 
     bookmark(&db, "https://example.com/stew", None, 40).await;
-    let other = bookmarks::list(&db, &bookmarks::Filter::default(), None, usize::MAX)
+    let other = bookmarks::list(&db, &Filter::default(), None, usize::MAX)
         .await
         .expect("list bookmarks")
         .items
@@ -64,9 +65,9 @@ async fn tags_a_bookmark() {
     assert_eq!(
         listed(
             &db,
-            bookmarks::Filter {
+            Filter {
                 topic: Some("RUST".to_owned()),
-                ..bookmarks::Filter::default()
+                ..Filter::default()
             }
         )
         .await,
@@ -75,9 +76,9 @@ async fn tags_a_bookmark() {
     assert_eq!(
         listed(
             &db,
-            bookmarks::Filter {
+            Filter {
                 query: Some("stew".to_owned()),
-                ..bookmarks::Filter::default()
+                ..Filter::default()
             }
         )
         .await,

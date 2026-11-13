@@ -2,9 +2,12 @@
 
 use rusqlite::{OptionalExtension, Row, params, params_from_iter, types::Value};
 
-use lockbox_types::feed::{
-    DEFAULT_REFRESH_SECONDS, DEFAULT_TIMEOUT_SECONDS, Feed, FeedChange, Kind, NewFeed, Refresh,
-    Source, Visibility,
+use lockbox_types::{
+    feed::{
+        DEFAULT_REFRESH_SECONDS, DEFAULT_TIMEOUT_SECONDS, Feed, FeedChange, Kind, NewFeed, Refresh,
+        Source,
+    },
+    visibility::Visibility,
 };
 
 use super::{entries, named};
@@ -29,8 +32,7 @@ pub type Page = super::Page<Feed, Cursor>;
 
 /// Add a feed, or return the one already stored under `url`.
 pub async fn add(db: &Db, feed: NewFeed, now: i64) -> Result<Feed, Error> {
-    db.call(move |connection| {
-        let transaction = connection.transaction()?;
+    db.transaction(move |transaction| {
         transaction.execute(
             "INSERT INTO feed (url, site_url, title, kind, refresh_seconds, timeout_seconds,
                                user_agent, discovered_from, created_at, updated_at)
@@ -51,7 +53,6 @@ pub async fn add(db: &Db, feed: NewFeed, now: i64) -> Result<Feed, Error> {
 
         let sql = format!("SELECT {COLUMNS} FROM feed WHERE url = ?1");
         let stored = transaction.query_row(&sql, [&feed.url], from_row)?;
-        transaction.commit()?;
         Ok(stored)
     })
     .await
@@ -138,8 +139,7 @@ pub async fn list(db: &Db, after: Option<Cursor>, limit: usize) -> Result<Page, 
 ///
 /// Returns how many entries were new.
 pub async fn record_refresh(db: &Db, id: i64, refresh: Refresh) -> Result<usize, Error> {
-    db.call(move |connection| {
-        let transaction = connection.transaction()?;
+    db.transaction(move |transaction| {
         let changed = transaction.execute(
             "UPDATE feed
              SET fetched_at = ?1, etag = ?2, last_modified = ?3,
@@ -151,8 +151,7 @@ pub async fn record_refresh(db: &Db, id: i64, refresh: Refresh) -> Result<usize,
             return Err(Error::NotFound);
         }
 
-        let inserted = entries::insert(&transaction, id, &refresh.entries, refresh.fetched_at)?;
-        transaction.commit()?;
+        let inserted = entries::insert(transaction, id, &refresh.entries, refresh.fetched_at)?;
         Ok(inserted)
     })
     .await

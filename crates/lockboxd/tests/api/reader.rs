@@ -1,295 +1,22 @@
-//! Tests of the local API's node and reader routes.
+//! Tests of the feed and entry routes.
 
-mod common;
-
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use axum::{Router, routing::get};
-use common::{Daemon, Site, json, request};
-use lockbox_core::settings::Settings;
-use lockbox_proto::{
-    PROTOCOL_VERSION,
-    api::{
-        ApiError, Code, Page,
-        node::{self, SETTINGS_PATH},
-        reader::{self, DEFAULT_USER_AGENT, ENTRIES_PATH, FEEDS_PATH},
-    },
+use lockbox_proto::api::{
+    ApiError, Code, Page,
+    reader::{self, DEFAULT_USER_AGENT, ENTRIES_PATH, FEEDS_PATH},
 };
-use lockbox_store::local::settings;
 use lockbox_types::{
-    entry::{Entry, EntrySummary},
+    entry::Entry,
     feed::{DEFAULT_TIMEOUT_SECONDS, Feed, Kind, Refreshed},
-    node::{Health, Status},
 };
 
-/// A feed document with two items, the first of which has a body.
-const RSS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
-  <channel>
-    <title>Example blog</title>
-    <link>https://example.com/</link>
-    <item>
-      <title>First post</title>
-      <link>https://example.com/first</link>
-      <guid>first</guid>
-      <description>Short summary</description>
-      <content:encoded><![CDATA[<p>words</p>]]></content:encoded>
-      <pubDate>Sun, 06 Sep 2009 16:20:00 +0000</pubDate>
-    </item>
-    <item>
-      <title>Second post</title>
-      <link>https://example.com/second</link>
-      <guid>second</guid>
-      <pubDate>Mon, 07 Sep 2009 16:20:00 +0000</pubDate>
-    </item>
-  </channel>
-</rss>"#;
-
-/// The same feed after its author added one more item.
-const RSS_UPDATED: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
-  <channel>
-    <title>Example blog</title>
-    <link>https://example.com/</link>
-    <item>
-      <title>First post</title>
-      <link>https://example.com/first</link>
-      <guid>first</guid>
-      <pubDate>Sun, 06 Sep 2009 16:20:00 +0000</pubDate>
-    </item>
-    <item>
-      <title>Second post</title>
-      <link>https://example.com/second</link>
-      <guid>second</guid>
-      <pubDate>Mon, 07 Sep 2009 16:20:00 +0000</pubDate>
-    </item>
-    <item>
-      <title>Third post</title>
-      <link>https://example.com/third</link>
-      <guid>third</guid>
-      <pubDate>Tue, 08 Sep 2009 16:20:00 +0000</pubDate>
-    </item>
-  </channel>
-</rss>"#;
-
-/// A page which advertises `/feed.xml`.
-const PAGE: &str = r#"<!doctype html>
-<html>
-  <head>
-    <title>Example</title>
-    <link rel="alternate" type="application/rss+xml" href="/feed.xml">
-  </head>
-  <body>words</body>
-</html>"#;
-
-/// Read the settings over the API.
-async fn fetch(daemon: &Daemon) -> Settings {
-    let (code, body) = request(daemon.socket(), "GET", SETTINGS_PATH, None).await;
-    assert_eq!(code, 200, "{body}");
-    json(&body)
-}
-
-/// Change settings over the API.
-async fn patch(daemon: &Daemon, change: &str) -> Settings {
-    let (code, body) = request(daemon.socket(), "PATCH", SETTINGS_PATH, Some(change)).await;
-    assert_eq!(code, 200, "{body}");
-    json(&body)
-}
-
-/// A site which serves one feed document.
-async fn site(board: &'static str) -> Site {
-    Site::start(Router::new().route("/feed.xml", get(move || async move { board }))).await
-}
-
-/// A site which serves a page with the feed of [`site`] linked from it.
-async fn page_site() -> Site {
-    Site::start(
-        Router::new()
-            .route("/", get(|| async { PAGE }))
-            .route("/feed.xml", get(|| async { RSS })),
-    )
-    .await
-}
-
-/// Add the feed at `url` and answer with the refresh it came with.
-async fn add(daemon: &Daemon, url: &str) -> Refreshed {
-    let request_body = serde_json::json!({ "url": url }).to_string();
-    let (code, body) = request(daemon.socket(), "POST", FEEDS_PATH, Some(&request_body)).await;
-    assert_eq!(code, 201, "{body}");
-    json(&body)
-}
-
-/// The entries of one reading list request.
-async fn entries(daemon: &Daemon, query: &str) -> Page<EntrySummary> {
-    let (code, body) = request(
-        daemon.socket(),
-        "GET",
-        &format!("{ENTRIES_PATH}{query}"),
-        None,
-    )
-    .await;
-    assert_eq!(code, 200, "{body}");
-    json(&body)
-}
-
-/// Titles of one reading list request.
-async fn titles(daemon: &Daemon, query: &str) -> Vec<String> {
-    entries(daemon, query)
-        .await
-        .items
-        .into_iter()
-        .map(|entry| entry.title)
-        .collect()
-}
-
-#[tokio::test]
-async fn answers_a_health_check() {
-    let daemon = Daemon::start().await;
-    let (code, body) = request(daemon.socket(), "GET", node::HEALTH_PATH, None).await;
-
-    assert_eq!(code, 200, "{body}");
-    let health: Health = json(&body);
-    assert!(health.ok);
-}
-
-#[tokio::test]
-async fn reports_the_node() {
-    let daemon = Daemon::start().await;
-    let (code, body) = request(daemon.socket(), "GET", node::STATUS_PATH, None).await;
-
-    assert_eq!(code, 200, "{body}");
-    let status: Status = json(&body);
-    assert_eq!(status.protocol_version, PROTOCOL_VERSION);
-    assert_eq!(status.software_version, env!("CARGO_PKG_VERSION"));
-    assert!(!status.node_id.is_empty());
-    // The encoded key and the hex name the same identity
-    assert!(
-        status.public_key.starts_with("lbox1"),
-        "{}",
-        status.public_key
-    );
-    assert_eq!(
-        lockbox_proto::key::decode_public(&status.public_key).expect("encoded public key"),
-        unhex(&status.node_id),
-    );
-
-    let (_, again) = request(daemon.socket(), "GET", node::STATUS_PATH, None).await;
-    let again: Status = json(&again);
-    assert_eq!(again.node_id, status.node_id);
-}
-
-#[tokio::test]
-async fn reports_routes_which_do_not_exist() {
-    let daemon = Daemon::start().await;
-
-    for path in ["/api/health", "/api/status", "/api/node", "/api/reader"] {
-        let (code, body) = request(daemon.socket(), "GET", path, None).await;
-        assert_eq!(code, 404, "{path}: {body}");
-        let error: ApiError = json(&body);
-        assert_eq!(error.code, Code::NotFound, "{path}");
-    }
-}
-
-#[tokio::test]
-async fn serves_the_default_settings() {
-    let daemon = Daemon::start().await;
-    assert_eq!(fetch(&daemon).await, Settings::default());
-}
-
-#[tokio::test]
-async fn changes_one_setting() {
-    let daemon = Daemon::start().await;
-
-    let expected = Settings {
-        trust_depth: 3,
-        ..Settings::default()
-    };
-    let changed = patch(&daemon, r#"{"trust_depth":3}"#).await;
-    assert_eq!(changed, expected);
-    assert_eq!(fetch(&daemon).await, expected);
-
-    // Only the value which changed is written down
-    let stored = daemon
-        .db()
-        .call(|connection| settings::load(connection))
-        .await
-        .expect("read the settings table");
-    assert_eq!(
-        stored,
-        HashMap::from([("trust_depth".to_owned(), "3".to_owned())])
-    );
-}
-
-#[tokio::test]
-async fn keeps_the_settings_when_nothing_is_named() {
-    let daemon = Daemon::start().await;
-
-    patch(&daemon, "{}").await;
-    assert_eq!(fetch(&daemon).await, Settings::default());
-}
-
-#[tokio::test]
-async fn clears_a_setting_sent_as_null() {
-    let daemon = Daemon::start().await;
-
-    let set = patch(&daemon, r#"{"retention_days":30}"#).await;
-    assert_eq!(set.retention_days, Some(30));
-
-    let cleared = patch(&daemon, r#"{"retention_days":null}"#).await;
-    assert_eq!(cleared.retention_days, None);
-    assert_eq!(fetch(&daemon).await, Settings::default());
-}
-
-#[tokio::test]
-async fn refuses_a_setting_it_does_not_know() {
-    let daemon = Daemon::start().await;
-    let (code, body) = request(
-        daemon.socket(),
-        "PATCH",
-        SETTINGS_PATH,
-        Some(r#"{"trust":3}"#),
-    )
-    .await;
-
-    assert_eq!(code, 422, "{body}");
-    let error: ApiError = json(&body);
-    assert_eq!(error.code, Code::Invalid);
-    assert!(error.error.contains("trust"), "{error:?}");
-    assert_eq!(fetch(&daemon).await, Settings::default());
-}
-
-#[tokio::test]
-async fn refuses_a_setting_of_the_wrong_type() {
-    let daemon = Daemon::start().await;
-    let (code, body) = request(
-        daemon.socket(),
-        "PATCH",
-        SETTINGS_PATH,
-        Some(r#"{"trust_depth":"two"}"#),
-    )
-    .await;
-
-    assert_eq!(code, 422, "{body}");
-    let error: ApiError = json(&body);
-    assert_eq!(error.code, Code::Invalid);
-    assert_eq!(fetch(&daemon).await, Settings::default());
-}
-
-#[tokio::test]
-async fn refuses_a_body_which_is_not_json() {
-    let daemon = Daemon::start().await;
-    let (code, body) = request(daemon.socket(), "PATCH", SETTINGS_PATH, Some("{")).await;
-
-    assert_eq!(code, 422, "{body}");
-    let error: ApiError = json(&body);
-    assert_eq!(error.code, Code::Invalid);
-}
+use crate::common::{Daemon, Site, json, request};
+use crate::fixtures::{RSS, RSS_UPDATED, add, entries, page_site, site, titles};
 
 #[tokio::test]
 async fn adds_a_feed_and_the_entries_it_brought() {
@@ -356,7 +83,7 @@ async fn records_a_failed_refresh_on_the_feed() {
     let site = site(RSS).await;
     let refreshed = add(&daemon, &site.url("/feed.xml")).await;
 
-    // The site is gone, so the next refresh fails and says so on the feed
+    // The next refresh fails after the site stops
     drop(site);
     let (code, body) = request(
         daemon.socket(),
@@ -452,7 +179,6 @@ async fn filters_and_pages_the_reading_list() {
     );
     assert_eq!(rest.next, None);
 
-    // The feed filter names the one feed which brought them
     assert_eq!(
         entries(&daemon, &format!("?feed={}", refreshed.feed.id))
             .await
@@ -462,7 +188,6 @@ async fn filters_and_pages_the_reading_list() {
     );
     assert_eq!(entries(&daemon, "?feed=999").await.items.len(), 0);
 
-    // Text search goes through the index
     assert_eq!(titles(&daemon, "?query=Third").await, ["Third post"]);
     assert!(entries(&daemon, "?query=nothing").await.items.is_empty());
 }
@@ -483,7 +208,7 @@ async fn reads_marks_and_deletes_an_entry() {
     assert_eq!(entry.summary.read_at, None);
     assert!(!entry.truncated);
 
-    // Reading it takes it out of the unread list
+    // Read entries leave the unread list
     let (code, body) = request(
         daemon.socket(),
         "PATCH",
@@ -496,7 +221,7 @@ async fn reads_marks_and_deletes_an_entry() {
     assert!(entry.summary.read_at.is_some());
     assert_eq!(titles(&daemon, "?read=false").await, ["Second post"]);
 
-    // Starring it puts it in the starred list
+    // Starred entries appear in the starred list
     let (code, body) = request(
         daemon.socket(),
         "PATCH",
@@ -540,7 +265,7 @@ async fn changes_and_removes_a_feed() {
     assert_eq!(feed.title.as_deref(), Some("Renamed"));
     assert_eq!(feed.refresh_seconds, 600);
 
-    // The interval is what the schema allows, no less than a minute
+    // Refresh intervals must be at least one minute
     let (code, body) = request(
         daemon.socket(),
         "PATCH",
@@ -611,7 +336,7 @@ async fn refuses_a_cursor_made_for_another_list() {
     let page: Page<Feed> = json(&body);
     let cursor = page.next.expect("a page which is not the last");
 
-    // A cursor names the list and the order it was made for
+    // Cursors belong to one list and sort order
     let (code, body) = request(
         daemon.socket(),
         "GET",
@@ -654,7 +379,7 @@ async fn fetches_a_feed_as_the_user_asked() {
     assert_eq!(refreshed.feed.user_agent.as_deref(), Some("Jane's reader"));
     assert_eq!(site.user_agents(), ["Jane's reader"]);
 
-    // A feed which names no user agent and no timeout gets the node's own
+    // Feeds inherit the node's user agent and timeout
     let plain = add(&daemon, &site.url("/feed.xml")).await;
     assert_eq!(
         plain.feed.id, refreshed.feed.id,
@@ -688,7 +413,7 @@ async fn changes_how_a_feed_is_fetched() {
     assert_eq!(feed.timeout_seconds, 90);
     assert_eq!(feed.user_agent.as_deref(), Some("another reader"));
 
-    // The next fetch uses what the user asked for
+    // The next fetch uses the updated settings
     let (code, body) = request(
         daemon.socket(),
         "POST",
@@ -702,7 +427,7 @@ async fn changes_how_a_feed_is_fetched() {
         Some("another reader")
     );
 
-    // Sending a null returns the feed to the user agent of this build
+    // Null restores the default user agent
     let (code, body) = request(
         daemon.socket(),
         "PATCH",
@@ -750,15 +475,4 @@ async fn refuses_a_timeout_outside_the_schema() {
         let error: ApiError = json(&body);
         assert_eq!(error.code, Code::Invalid, "{timeout}");
     }
-}
-
-/// Bytes which a hex string names.
-fn unhex(text: &str) -> [u8; 32] {
-    assert_eq!(text.len(), 64, "{text}");
-    let mut bytes = [0u8; 32];
-    for (index, pair) in text.as_bytes().chunks(2).enumerate() {
-        let pair = std::str::from_utf8(pair).expect("hex pair");
-        bytes[index] = u8::from_str_radix(pair, 16).expect("hex pair");
-    }
-    bytes
 }

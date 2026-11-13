@@ -43,7 +43,7 @@ async fn renames_and_deletes_topics() {
     let error = topics::rename(&db, rust, "other")
         .await
         .expect_err("duplicate topic");
-    assert!(error.to_string().contains("topic.name"), "{error}");
+    assert!(matches!(error, Error::Conflict(_)), "{error}");
 
     topics::delete(&db, rust).await.expect("delete topic");
     assert!(
@@ -105,5 +105,45 @@ async fn follows_and_unfollows_topics() {
     topics::unfollow(&db, "Nothing")
         .await
         .expect("unfollow a topic which is not there");
+    db.close().await.expect("close database");
+}
+
+#[tokio::test]
+async fn pages_topics_by_name() {
+    let temp = Temp::new("page-topics");
+    let db = open(&temp);
+    let saved = bookmark(&db, "https://example.com/a", None, 10).await;
+    tags::set(
+        &db,
+        saved,
+        vec!["Alpha".to_owned(), "Beta".to_owned(), "Gamma".to_owned()],
+        20,
+    )
+    .await
+    .expect("tag");
+
+    let first = topics::page(&db, None, 2).await.expect("first page");
+    assert_eq!(
+        first
+            .items
+            .iter()
+            .map(|topic| topic.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Alpha", "Beta"]
+    );
+    let cursor = first.next.expect("next page");
+
+    let second = topics::page(&db, Some(cursor), 2)
+        .await
+        .expect("second page");
+    assert_eq!(
+        second
+            .items
+            .iter()
+            .map(|topic| topic.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Gamma"]
+    );
+    assert_eq!(second.next, None);
     db.close().await.expect("close database");
 }

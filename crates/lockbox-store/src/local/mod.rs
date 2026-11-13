@@ -46,6 +46,28 @@ pub(super) fn unknown(column: &str, value: &str) -> FromSqlError {
     FromSqlError::Other(io::Error::other(format!("unknown {column} {value}")).into())
 }
 
+/// Quote search terms for FTS5, keeping AND, OR and NOT as operators between words.
+pub(super) fn search_query(query: &str) -> Option<String> {
+    let words: Vec<&str> = query.split_whitespace().collect();
+    if words.is_empty() {
+        return None;
+    }
+    let terms: Vec<String> = words
+        .iter()
+        .enumerate()
+        .map(|(position, word)| {
+            let operator = position > 0
+                && position + 1 < words.len()
+                && matches!(word.to_ascii_uppercase().as_str(), "OR" | "AND" | "NOT");
+            match operator {
+                true => word.to_ascii_uppercase(),
+                false => format!("\"{}\"", word.replace('"', "\"\"")),
+            }
+        })
+        .collect();
+    Some(terms.join(" "))
+}
+
 /// Read a column which holds the name of an enum, and parse it.
 pub(super) fn named<T>(
     row: &Row<'_>,
