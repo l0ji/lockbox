@@ -12,8 +12,12 @@ use axum::{
     routing::get,
 };
 use common::{Stub, sample_status};
-use lockbox_proto::api::{ApiError, Code, Page, node::STATUS_PATH, reader};
-use lockbox_types::{entry::EntrySummary, feed::Feed, node::Status};
+use lockbox_proto::api::{
+    ApiError, Code, Page,
+    node::{SETTINGS_PATH, STATUS_PATH},
+    reader::{self, FOLDERS_PATH},
+};
+use lockbox_types::{entry::EntrySummary, feed::Feed, folder::Folder, node::Status};
 use lockbox_web::{AppState, DaemonClient, NODE_PAGE, router};
 use tower::ServiceExt;
 
@@ -53,7 +57,7 @@ async fn serves_the_node_page() {
         "{html}"
     );
     assert!(
-        html.contains(r#"<a class="tab" href="/feeds">feeds</a>"#),
+        html.contains(r#"<a class="tab" href="/bookmarks">bookmarks</a>"#),
         "{html}"
     );
     assert!(html.contains("<td>test-node</td>"), "{html}");
@@ -91,6 +95,11 @@ async fn serves_the_reader_at_the_root() {
                     next: None,
                 })
             }),
+        )
+        .route(FOLDERS_PATH, get(|| async { Json(Vec::<Folder>::new()) }))
+        .route(
+            SETTINGS_PATH,
+            get(|| async { Json(serde_json::json!({ "publish_bookmarks": true })) }),
         );
     let stub = Stub::serve(app).await;
 

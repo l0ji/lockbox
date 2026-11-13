@@ -95,6 +95,20 @@ a:hover {
     font-weight: bold;
 }
 
+.subtabs {
+    display: flex;
+    gap: 12px;
+    padding: 4px 0 8px;
+    margin: -6px 0 12px;
+    border-bottom: 1px solid var(--lockbox-rule);
+    font-size: 11px;
+}
+
+.subtab.on {
+    color: var(--lockbox-accent);
+    font-weight: bold;
+}
+
 .sectionbar {
     display: flex;
     align-items: center;
@@ -222,6 +236,12 @@ li.item {
     color: #222222;
 }
 
+.stamp .access {
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 1;
+}
+
 .item-body {
     min-width: 0;
 }
@@ -298,18 +318,21 @@ form.act.undo button:hover {
     font-size: 11px;
 }
 
-ul.feedlinks {
-    margin: 0 0 18px;
+ul.feedlinks,
+ul.links {
+    margin: 0 0 16px;
     padding: 0;
     list-style: none;
     font-size: 11px;
 }
 
-ul.feedlinks li {
+ul.feedlinks li,
+ul.links li {
     padding: 2px 0;
 }
 
-ul.feedlinks li.on a {
+ul.feedlinks li.on a,
+ul.links li.on a {
     color: var(--lockbox-text);
     font-weight: bold;
 }
@@ -453,4 +476,204 @@ ul.plain li {
     .page {
         padding: 10px 12px 32px;
     }
+}
+
+
+.panel {
+    border: 1px solid var(--lockbox-border);
+    background: var(--lockbox-bar);
+    padding: 6px 8px;
+    margin: 0 0 14px;
+    font-size: 11px;
+}
+
+.panel summary {
+    cursor: pointer;
+    color: var(--lockbox-muted);
+}
+
+form.stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    margin: 8px 0 0;
+    max-width: 520px;
+}
+
+form.stack label {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    color: var(--lockbox-muted);
+}
+
+form.stack label input[type="text"],
+form.stack label textarea,
+form.stack label select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+form.stack-tight {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    margin: 0 0 4px;
+}
+
+form.stack label.check {
+    gap: 4px;
+}
+
+textarea {
+    border: 1px solid var(--lockbox-border);
+    background: var(--lockbox-surface);
+    color: var(--lockbox-text);
+    font: inherit;
+    font-size: 11px;
+    padding: 2px 4px;
+}
+
+select {
+    border: 1px solid var(--lockbox-border);
+    background: var(--lockbox-surface);
+    color: var(--lockbox-text);
+    font: inherit;
+    font-size: 11px;
+    padding: 2px 4px;
+}
+
+.actions {
+    display: flex;
+    gap: 6px;
+    margin: 4px 0 0;
+}
+
+button.linkbutton {
+    border: none;
+    background: none;
+    color: var(--lockbox-link);
+    font: inherit;
+    font-size: 11px;
+    padding: 0;
+    cursor: pointer;
+}
+
+button.linkbutton:hover {
+    text-decoration: underline;
+}
+
+dialog.save {
+    border: 1px solid var(--lockbox-border);
+    background: var(--lockbox-surface);
+    color: var(--lockbox-text);
+    padding: 14px;
+    max-width: 420px;
+    width: 90%;
+}
+
+dialog.save::backdrop {
+    background: rgb(0 0 0 / 35%);
+}
+
+dialog.save h2 {
+    margin: 0 0 10px;
+    font-size: 13px;
+}
+
+dialog.save form {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+}
+
+dialog.save label {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    color: var(--lockbox-muted);
+}
+
+dialog.save label input,
+dialog.save label select,
+dialog.save label textarea {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.chip {
+    border: 1px solid var(--lockbox-border);
+    background: var(--lockbox-bar);
+    padding: 0 4px;
+    font-size: 10px;
+    color: var(--lockbox-muted);
+}
+
+a.button {
+    border: 1px solid var(--lockbox-border);
+    background: var(--lockbox-bar);
+    color: var(--lockbox-text);
+    font-size: 11px;
+    padding: 2px 8px;
+    text-decoration: none;
+}
+
+a.button:hover {
+    border-color: var(--lockbox-accent);
+    text-decoration: none;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+.flag {
+    color: var(--lockbox-danger);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+li.item.bookmark.archived .title {
+    color: var(--lockbox-muted);
+    font-weight: normal;
+}
+
+table.folders,
+table.topics {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+table.folders th,
+table.topics th {
+    text-align: left;
+    font-weight: normal;
+    color: var(--lockbox-muted);
+    border-bottom: 1px solid var(--lockbox-border);
+    padding: 4px 8px 4px 0;
+}
+
+table.folders td,
+table.topics td {
+    vertical-align: top;
+    border-bottom: 1px solid var(--lockbox-rule);
+    padding: 7px 8px 7px 0;
+}
+
+table.folders td.name strong,
+table.topics td.name strong {
+    font-size: 12px;
+}
+
+.indent {
+    color: var(--lockbox-faint);
+    white-space: pre;
+}
+
+td.name .meta {
+    display: block;
 }

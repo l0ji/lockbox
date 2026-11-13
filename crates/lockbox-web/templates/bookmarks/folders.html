@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: folders{% endblock %}
+
+{% block subnav %}
+<nav class="subtabs">
+    <a class="subtab" href="/bookmarks">saved</a>
+    <a class="subtab" href="/bookmarks/archived">archived</a>
+    <a class="subtab on" href="/folders">folders</a>
+    <a class="subtab" href="/topics">topics</a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section">folders</h1>
+</div>
+
+{%- if has_error %}
+<p class="notice">{{ error }}</p>
+{%- endif %}
+
+<details class="panel">
+    <summary>new folder</summary>
+    <form class="stack" method="post" action="/folders">
+        <label>name <input type="text" name="name" size="32" required></label>
+        <label>parent
+            <select name="parent_id">
+                <option value="">root</option>
+                {%- for folder in parents %}
+                <option value="{{ folder.id }}">{{ folder.label }}</option>
+                {%- endfor %}
+            </select>
+        </label>
+        <label>kind
+            <select name="kind" id="new-folder-kind">
+                <option value="manual">manual</option>
+                <option value="dynamic">dynamic</option>
+            </select>
+        </label>
+        <label id="new-folder-topics" hidden>topics <input type="text" name="topics" size="32"
+                placeholder="rust, databases"></label>
+        <div class="actions"><button type="submit">create</button></div>
+    </form>
+</details>
+
+<script>
+    const kind = document.getElementById("new-folder-kind");
+    const topics = document.getElementById("new-folder-topics");
+    const syncTopics = () => {
+        topics.hidden = kind.value !== "dynamic";
+    };
+    kind.addEventListener("change", syncTopics);
+    syncTopics();
+</script>
+
+<table class="folders">
+    <thead>
+        <tr>
+            <th>folder</th>
+            <th>place</th>
+        </tr>
+    </thead>
+    <tbody>
+        {%- for row in rows %}
+        <tr>
+            <td class="name">
+                <span class="indent">{{ row.indent }}</span><strong>{{ row.name }}</strong>
+                <span class="meta">{{ row.kind }} | id {{ row.id }}</span>
+            </td>
+            <td>
+                <form class="stack-tight" method="post" action="/folders/{{ row.id }}/change">
+                    <input type="text" name="name" value="{{ row.name }}" size="20" required aria-label="name">
+                    <label>parent <input type="number" name="parent_id" value="{{ row.parent_text }}" min="1"
+                            aria-label="parent id"></label>
+                    <label>position <input type="number" name="position" value="{{ row.position }}" min="0"
+                            aria-label="position"></label>
+                    <input type="hidden" name="kind" value="{{ row.kind }}">
+                    {%- if row.dynamic %}
+                    <label>topics <input type="text" name="topics" value="{{ row.topics }}" size="22"
+                            aria-label="topics"></label>
+                    {%- endif %}
+                    <button type="submit">save</button>
+                </form>
+                <form method="post" action="/folders/{{ row.id }}/delete">
+                    <button type="submit">delete</button>
+                </form>
+            </td>
+        </tr>
+        {%- else %}
+        <tr>
+            <td class="empty" colspan="2">no folders yet</td>
+        </tr>
+        {%- endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -38,7 +38,7 @@ cargo run -p lockbox-web      # starts a web server on http://127.0.0.1:8080/
 | `GET /api/node/settings` | every setting the user can change |
 | `PATCH /api/node/settings` | modify the current node settings |
 
-### RSS Reader
+### RSS reader
 
 | Route | Reply |
 | --- | --- |
@@ -52,3 +52,22 @@ cargo run -p lockbox-web      # starts a web server on http://127.0.0.1:8080/
 | `GET /api/reader/entries/{id}` | one entry with its body |
 | `PATCH /api/reader/entries/{id}` | mark the entry read, starred or archived |
 | `DELETE /api/reader/entries/{id}` | delete one entry |
+| `POST /api/reader/entries/{id}/save` | save the entry as a bookmark, with a folder, topics and visibility |
+
+### Bookmarks
+
+| Route | Reply |
+| --- | --- |
+| `GET /api/reader/bookmarks` | list of saved links |
+| `POST /api/reader/bookmarks` | save a link |
+| `GET /api/reader/bookmarks/{id}` | get a saved link |
+| `PATCH /api/reader/bookmarks/{id}` | change a link's metadata |
+| `DELETE /api/reader/bookmarks/{id}` | delete a link |
+| `PUT /api/reader/bookmarks/{id}/topics` | change the applied topics |
+| `GET /api/reader/folders` | get a tree of folders |
+| `POST /api/reader/folders` | create a folder |
+| `PATCH /api/reader/folders/{id}` | modify a folder |
+| `DELETE /api/reader/folders/{id}` | delete a folder |
+| `GET /api/reader/topics` | get a list of topics |
+| `PATCH /api/reader/topics/{id}` | rename a topic |
+| `DELETE /api/reader/topics/{id}` | delete a topic |

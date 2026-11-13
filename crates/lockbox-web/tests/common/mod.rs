@@ -5,16 +5,30 @@
 
 use std::{
     path::PathBuf,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
 };
 
-use axum::{Json, Router, routing::get};
+use axum::{
+    Json, Router,
+    body::Body,
+    http::{Method, Request, StatusCode, header},
+    routing::get,
+};
 use lockbox_proto::{PROTOCOL_VERSION, api::node::STATUS_PATH};
 use lockbox_types::{
+    bookmark::Bookmark,
     entry::{Entry, EntrySummary},
-    feed::{Feed, Kind, Source, Visibility},
+    feed::{Feed, Kind, Source},
+    folder::{Folder, Kind as FolderKind},
     node::Status,
+    topic::Topic,
+    visibility::Visibility,
 };
+use lockbox_web::{AppState, DaemonClient, router};
+use tower::ServiceExt;
 
 /// A sample status reply from the daemon.
 pub fn sample_status() -> Status {
@@ -127,4 +141,92 @@ pub fn sample_body() -> Entry {
         body: Some("<p>words</p>".to_owned()),
         truncated: false,
     }
+}
+
+pub fn sample_folder() -> Folder {
+    Folder {
+        id: 1,
+        parent_id: None,
+        name: "Reading".to_owned(),
+        kind: FolderKind::Manual,
+        position: 0,
+        created_at: 1_700_000_000,
+        topics: Vec::new(),
+    }
+}
+
+pub fn sample_topic() -> Topic {
+    Topic {
+        id: 1,
+        name: "Rust".to_owned(),
+        created_at: 1_700_000_000,
+        followed_at: None,
+    }
+}
+
+pub fn sample_bookmark() -> Bookmark {
+    Bookmark {
+        id: 1,
+        url: "https://example.com/first".to_owned(),
+        canonical_url: "https://example.com/first".to_owned(),
+        title: "First post".to_owned(),
+        note: Some("A note".to_owned()),
+        folder_id: Some(1),
+        position: 0,
+        entry_id: Some(1),
+        created_at: 1_700_000_000,
+        updated_at: 1_700_000_100,
+        archived_at: None,
+        visibility: Visibility::Public,
+        topics: vec![sample_topic()],
+    }
+}
+
+/// Stores request bodies in arrival order.
+#[derive(Debug, Clone, Default)]
+pub struct Record(Arc<Mutex<Vec<String>>>);
+
+impl Record {
+    pub fn bodies(&self) -> Vec<String> {
+        self.0.lock().expect("recorded bodies").clone()
+    }
+
+    pub fn push(&self, body: String) {
+        self.0.lock().expect("recorded bodies").push(body);
+    }
+}
+
+/// Returns the status, headers and body from a fresh router.
+pub async fn request(
+    method: Method,
+    path: &str,
+    form: Option<&str>,
+    socket: impl Into<PathBuf>,
+) -> (StatusCode, axum::http::HeaderMap, String) {
+    let mut request = Request::builder().method(method).uri(path);
+    let body = match form {
+        Some(form) => {
+            request = request
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(header::HOST, "localhost");
+            Body::from(form.to_owned())
+        }
+        None => Body::empty(),
+    };
+    let request = request.body(body).expect("build request");
+
+    let response = router(AppState::new(DaemonClient::new(socket.into())))
+        .oneshot(request)
+        .await
+        .expect("web client must not fail");
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .expect("read body");
+    (
+        status,
+        headers,
+        String::from_utf8(body.to_vec()).expect("utf8 body"),
+    )
 }

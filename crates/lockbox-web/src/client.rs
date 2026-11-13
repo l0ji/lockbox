@@ -142,6 +142,11 @@ impl DaemonClient {
         self.request(Method::PATCH, path, Some(body)).await
     }
 
+    pub async fn put<T: Serialize>(&self, path: &str, body: &T) -> Result<Response, ClientError> {
+        let body = serde_json::to_string(body).map_err(ClientError::Parse)?;
+        self.request(Method::PUT, path, Some(body)).await
+    }
+
     /// `DELETE path`, returning the raw reply.
     pub async fn delete(&self, path: &str) -> Result<Response, ClientError> {
         self.request(Method::DELETE, path, None).await

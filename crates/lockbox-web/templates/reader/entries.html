@@ -2,6 +2,13 @@
 
 {% block title %}lockbox: reader{% endblock %}
 
+{% block subnav %}
+<nav class="subtabs">
+    <a class="subtab on" href="/">entries</a>
+    <a class="subtab" href="/feeds">feeds</a>
+</nav>
+{% endblock %}
+
 {% block content %}
 <div class="sectionbar">
     <h1 class="section">reader</h1>
@@ -42,8 +49,37 @@
                             <input type="hidden" name="back" value="{{ back }}">
                             <button type="submit">{% if row.starred %}unstar{% else %}star{% endif %}</button>
                         </form>
+                        <button type="button" class="linkbutton"
+                            onclick="document.getElementById('save-{{ row.id }}').showModal()">save</button>
                     </span>
                 </div>
+
+                <dialog class="save" id="save-{{ row.id }}">
+                    <form method="post" action="/entry/{{ row.id }}/save">
+                        <h2>save link</h2>
+                        <label>visibility
+                            <select name="visibility">
+                                <option value="public" {% if visibility_public %}selected{% endif %}>public</option>
+                                <option value="private" {% if visibility_public %}{% else %}selected{% endif %}>private</option>
+                            </select>
+                        </label>
+                        <label>folder
+                            <select name="folder_id">
+                                <option value="">unfiled</option>
+                                {%- for folder in save_folders %}
+                                <option value="{{ folder.id }}">{{ folder.label }}</option>
+                                {%- endfor %}
+                            </select>
+                        </label>
+                        <label>topics <input type="text" name="topics" size="28" placeholder="rust, databases"></label>
+                        <label>note <textarea name="note" rows="3"></textarea></label>
+                        <input type="hidden" name="back" value="{{ back }}">
+                        <div class="actions">
+                            <button type="submit">save</button>
+                            <button type="button" onclick="this.closest('dialog').close()">cancel</button>
+                        </div>
+                    </form>
+                </dialog>
             </li>
             {%- else %}
             <li class="empty">nothing to read yet</li>
@@ -57,13 +93,14 @@
 
     <aside class="rail">
         <h2 class="rail-section">feeds</h2>
-        <ul class="feedlinks">
+        <ul class="links">
             {%- for feed in feeds %}
             <li{% if feed.selected %} class="on"{% endif %}><a href="{{ feed.href }}">{{ feed.title }}</a></li>
             {%- else %}
             <li class="empty">none yet</li>
             {%- endfor %}
         </ul>
+
     </aside>
 </div>
 {% endblock %}

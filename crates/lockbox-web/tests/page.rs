@@ -7,7 +7,7 @@ use common::sample_status;
 use lockbox_proto::PROTOCOL_VERSION;
 use lockbox_types::node::Status;
 use lockbox_web::{
-    EntriesPage, EntryPage, ErrorPage, FeedLink, FeedRow, FeedsPage, FilterLink, Page, Row,
+    Choice, EntriesPage, EntryPage, ErrorPage, FeedRow, FeedsPage, FilterLink, NavLink, Page, Row,
     TEXT_LIMIT, truncate,
 };
 
@@ -116,17 +116,23 @@ fn renders_the_reading_list() {
             },
         ],
         feeds: vec![
-            FeedLink {
+            NavLink {
                 title: "all feeds".to_owned(),
                 href: "/".to_owned(),
                 selected: false,
             },
-            FeedLink {
+            NavLink {
                 title: "Example blog".to_owned(),
                 href: "/?feed=1".to_owned(),
                 selected: true,
             },
         ],
+        save_folders: vec![Choice {
+            id: 1,
+            label: "Reading".to_owned(),
+            selected: false,
+        }],
+        visibility_public: true,
         search: "words".to_owned(),
         back: "/?read=false".to_owned(),
         rows: vec![
@@ -222,6 +228,8 @@ fn renders_an_empty_reading_list() {
         section: "reader",
         filters: Vec::new(),
         feeds: Vec::new(),
+        save_folders: Vec::new(),
+        visibility_public: true,
         search: String::new(),
         back: "/".to_owned(),
         rows: Vec::new(),
@@ -238,6 +246,9 @@ fn renders_an_empty_reading_list() {
 fn renders_one_entry() {
     let html = rendered(EntryPage {
         section: "reader",
+        id: 1,
+        save_folders: Vec::new(),
+        visibility_public: true,
         title: "First post".to_owned(),
         feed: "Example blog".to_owned(),
         author: "Jane".to_owned(),
@@ -273,6 +284,9 @@ fn renders_one_entry() {
 fn renders_an_entry_without_a_body() {
     let html = rendered(EntryPage {
         section: "reader",
+        id: 2,
+        save_folders: Vec::new(),
+        visibility_public: true,
         title: "Second post".to_owned(),
         feed: "Example blog".to_owned(),
         author: String::new(),
@@ -299,7 +313,7 @@ fn renders_an_entry_without_a_body() {
 #[test]
 fn renders_the_feed_list() {
     let html = rendered(FeedsPage {
-        section: "feeds",
+        section: "reader",
         feeds: vec![
             FeedRow {
                 id: 1,
@@ -403,6 +417,9 @@ fn cuts_a_body_which_is_too_long() {
     let body = "word ".repeat(100);
     let html = rendered(EntryPage {
         section: "reader",
+        id: 3,
+        save_folders: Vec::new(),
+        visibility_public: true,
         title: "A long post".to_owned(),
         feed: "Example blog".to_owned(),
         author: String::new(),
@@ -428,6 +445,9 @@ fn keeps_a_body_which_fits() {
     let body = "short enough";
     let html = rendered(EntryPage {
         section: "reader",
+        id: 4,
+        save_folders: Vec::new(),
+        visibility_public: true,
         title: "A short post".to_owned(),
         feed: "Example blog".to_owned(),
         author: String::new(),

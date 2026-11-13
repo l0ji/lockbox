@@ -1,0 +1,88 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: {{ heading }}{% endblock %}
+
+{% block subnav %}
+<nav class="subtabs">
+    <a class="subtab{% if archived %}{% else %} on{% endif %}" href="/bookmarks">saved</a>
+    <a class="subtab{% if archived %} on{% endif %}" href="/bookmarks/archived">archived</a>
+    <a class="subtab" href="/folders">folders</a>
+    <a class="subtab" href="/topics">topics</a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section">{{ heading }}</h1>
+    <div class="toolbar">
+        <a class="button" href="/bookmark/new">new bookmark</a>
+        <form class="search" method="get" action="{% if archived %}/bookmarks/archived{% else %}/bookmarks{% endif %}">
+            <input type="search" name="query" value="{{ search }}" size="24">
+            <button type="submit">search</button>
+        </form>
+    </div>
+</div>
+
+<div class="columns">
+    <div class="stream">
+        <ul class="items">
+            {%- for row in rows %}
+            <li class="item bookmark{% if row.archived %} archived{% endif %}">
+                <div class="stamp">
+                    <div>{{ row.stamp }}</div>
+                    <div class="access" title="{% if row.public %}public{% else %}private{% endif %}">
+                        {% if row.public %}🌐{% else %}🔒{% endif %}
+                    </div>
+                </div>
+                <div class="item-body">
+                    <a class="title" href="{{ row.url }}" rel="noreferrer">{{ row.title }}</a>
+                    {%- if row.has_note %}
+                    <p class="summary">{{ row.note }}</p>
+                    {%- endif %}
+                    <span class="meta">
+                        <span class="feed">{{ row.domain }}</span>
+                        {%- for topic in row.topics %}
+                        <a class="chip" href="{{ topic.href }}">{{ topic.title }}</a>
+                        {%- endfor %}
+                        <a href="/bookmark/{{ row.id }}">edit</a>
+                        <form class="act" method="post" action="/bookmark/{{ row.id }}/archive">
+                            <input type="hidden" name="on"
+                                value="{% if row.archived %}false{% else %}true{% endif %}">
+                            <input type="hidden" name="back" value="{{ back }}">
+                            <button type="submit">{% if row.archived %}unarchive{% else %}archive{% endif %}</button>
+                        </form>
+                        <form class="act" method="post" action="/bookmark/{{ row.id }}/delete">
+                            <button type="submit">delete</button>
+                        </form>
+                    </span>
+                </div>
+            </li>
+            {%- else %}
+            <li class="empty">{% if archived %}nothing archived{% else %}nothing saved yet{% endif %}</li>
+            {%- endfor %}
+        </ul>
+
+        {%- if has_next %}
+        <p class="more"><a href="{{ next }}">older links</a></p>
+        {%- endif %}
+    </div>
+
+    <aside class="rail">
+        <h2 class="rail-section">folders</h2>
+        <ul class="links">
+            {%- for folder in folders %}
+            <li{% if folder.selected %} class="on"{% endif %}><a href="{{ folder.href }}">{{ folder.title }}</a></li>
+            {%- endfor %}
+        </ul>
+
+        <h2 class="rail-section">topics</h2>
+        <ul class="links">
+            {%- for topic in topics %}
+            <li{% if topic.selected %} class="on"{% endif %}><a href="{{ topic.href }}">{{ topic.title }}</a></li>
+            {%- else %}
+            <li class="empty">none yet</li>
+            {%- endfor %}
+        </ul>
+    </aside>
+</div>
+{% endblock %}

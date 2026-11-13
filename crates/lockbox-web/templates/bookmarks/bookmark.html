@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: {{ bookmark.title }}{% endblock %}
+
+{% block subnav %}
+<nav class="subtabs">
+    <a class="subtab on" href="/bookmarks">saved</a>
+    <a class="subtab" href="/bookmarks/archived">archived</a>
+    <a class="subtab" href="/folders">folders</a>
+    <a class="subtab" href="/topics">topics</a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section"><a href="/bookmarks">bookmarks</a></h1>
+    <span class="meta">saved {{ created }} | changed {{ updated }}</span>
+</div>
+
+<article class="entry">
+    <h2 class="entry-title">{{ bookmark.title }}</h2>
+    <p class="meta">
+        <a href="{{ bookmark.url }}" rel="noreferrer">{{ bookmark.url }}</a>
+        <span class="access" title="{% if public %}public{% else %}private{% endif %}">
+            {% if public %}🌐{% else %}🔒{% endif %}
+        </span>
+        {% if archived %}<span class="flag">archived</span>{% endif %}
+    </p>
+    {%- if has_entry %}
+    <p class="meta">saved from <a href="/entry/{{ entry_id_text }}">entry {{ entry_id_text }}</a></p>
+    {%- endif %}
+</article>
+
+<h2 class="rail-section">details</h2>
+<form class="stack" method="post" action="/bookmark/{{ bookmark.id }}">
+    <label>title <input type="text" name="title" value="{{ bookmark.title }}" size="42" required></label>
+    <label>address <input type="text" name="url" value="{{ bookmark.url }}" size="42" required></label>
+    <label>note <textarea name="note" rows="3">{{ note }}</textarea></label>
+    <label>folder
+        <select name="folder_id">
+            <option value="">unfiled</option>
+            {%- for folder in folders %}
+            <option value="{{ folder.id }}" {% if folder.selected %}selected{% endif %}>{{ folder.label }}</option>
+            {%- endfor %}
+        </select>
+    </label>
+    <label>position <input type="number" name="position" value="{{ bookmark.position }}" min="0"></label>
+    <label>visibility
+        <select name="visibility">
+            <option value="public" {% if public %}selected{% endif %}>public</option>
+            <option value="private" {% if public %}{% else %}selected{% endif %}>private</option>
+        </select>
+    </label>
+    <label class="check"><input type="checkbox" name="archived" value="on"
+            {% if archived %}checked{% endif %}> archived</label>
+    <div class="actions"><button type="submit">save</button></div>
+</form>
+
+<h2 class="rail-section">topics</h2>
+<form class="stack" method="post" action="/bookmark/{{ bookmark.id }}/topics">
+    <label>topics <input type="text" name="topics" value="{{ topics }}" size="42"
+            placeholder="rust, databases"></label>
+    <div class="actions"><button type="submit">replace topics</button></div>
+</form>
+
+<h2 class="rail-section">remove</h2>
+<form method="post" action="/bookmark/{{ bookmark.id }}/delete">
+    <button type="submit">delete this bookmark</button>
+</form>
+{% endblock %}

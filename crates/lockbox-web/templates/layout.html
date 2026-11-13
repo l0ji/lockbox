@@ -14,10 +14,12 @@
             <a class="wordmark" href="/">lockbox</a>
             <nav class="tabs">
                 <a class="tab{% if section == "reader" %} on{% endif %}" href="/">reader</a>
-                <a class="tab{% if section == "feeds" %} on{% endif %}" href="/feeds">feeds</a>
+                <a class="tab{% if section == "bookmarks" %} on{% endif %}" href="/bookmarks">bookmarks</a>
                 <a class="tab{% if section == "node" %} on{% endif %}" href="/node">node</a>
             </nav>
         </header>
+
+        {%- block subnav %}{% endblock %}
 
         {%- block content %}{% endblock %}
     </div>

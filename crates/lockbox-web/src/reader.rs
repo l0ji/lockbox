@@ -6,25 +6,25 @@ use askama::Template;
 use axum::{
     Form, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use lockbox_proto::api::{
-    ApiError, ListQuery, Page,
+    ListQuery, Page,
     reader::{
-        DEFAULT_USER_AGENT, ENTRIES_PATH, EntryQuery, FEEDS_PATH, entry_path, feed_path,
-        refresh_path,
+        DEFAULT_USER_AGENT, ENTRIES_PATH, EntryQuery, FEEDS_PATH, SaveEntry, entry_path, feed_path,
+        refresh_path, save_entry_path,
     },
 };
 use lockbox_types::{
     entry::{Entry, EntryChange, EntrySummary},
     feed::{Feed, FeedChange, NewFeed},
     now,
+    visibility::Visibility,
 };
 use serde::Deserialize;
 
-use crate::{AppState, ClientError, DaemonClient, ErrorPage, Response as Reply};
+use crate::{AppState, ClientError, DaemonClient, Failure, data, reason, render, return_to};
 
 /// Page which lists the reader's entries.
 pub const ENTRIES_PAGE: &str = "/";
@@ -49,6 +49,7 @@ pub fn routes() -> Router<AppState> {
         .route(&format!("{ENTRY_PAGE}/{{id}}"), get(entry))
         .route(&format!("{ENTRY_PAGE}/{{id}}/read"), post(mark_read))
         .route(&format!("{ENTRY_PAGE}/{{id}}/star"), post(mark_starred))
+        .route(&format!("{ENTRY_PAGE}/{{id}}/save"), post(save_entry))
         .route(FEEDS_PAGE, get(feeds).post(add))
         .route(&format!("{FEEDS_PAGE}/{{id}}/refresh"), post(refresh))
         .route(&format!("{FEEDS_PAGE}/{{id}}/settings"), post(settings))
@@ -91,6 +92,8 @@ async fn entries(
 ) -> Result<Html<String>, Failure> {
     let client = state.client();
     let feeds = all_feeds(client).await?;
+    let folders = data::folders(client).await?;
+    let visibility_public = data::publish_bookmarks(client).await?;
     let page: Page<EntrySummary> = client
         .get_json(&format!(
             "{ENTRIES_PATH}{}",
@@ -124,6 +127,8 @@ async fn entries(
         section: "reader",
         filters: filters(&query),
         feeds: feed_links(&feeds, &query),
+        save_folders: data::choices(&folders, true, None),
+        visibility_public,
         search: query.query.clone().unwrap_or_default(),
         back: format!("{ENTRIES_PAGE}{}", query.to_entry_query().to_query()),
         rows,
@@ -140,6 +145,8 @@ async fn entry(
     let client = state.client();
     let entry: Entry = client.get_json(&entry_path(id)).await?;
     let feeds = all_feeds(client).await?;
+    let folders = data::folders(client).await?;
+    let visibility_public = data::publish_bookmarks(client).await?;
     let feed = feeds
         .iter()
         .find(|feed| feed.id == entry.summary.feed_id)
@@ -154,6 +161,7 @@ async fn entry(
 
     render(EntryPage {
         section: "reader",
+        id,
         title: summary.title.clone(),
         feed,
         author,
@@ -166,6 +174,8 @@ async fn entry(
         body,
         has_body,
         back: ENTRIES_PAGE.to_owned(),
+        save_folders: data::choices(&folders, true, None),
+        visibility_public,
     })
 }
 
@@ -205,7 +215,7 @@ async fn settings(
 ) -> Response {
     let change = FeedChange {
         timeout_seconds: Some(form.timeout_seconds),
-        user_agent: Some(user_agent_of(&form.user_agent)),
+        user_agent: Some(data::optional_text(form.user_agent)),
         ..FeedChange::default()
     };
     match state.client().patch(&feed_path(id), &change).await {
@@ -267,7 +277,29 @@ async fn mark_starred(
 /// Change one entry and return to the page the form came from.
 async fn mark(state: &AppState, id: i64, change: EntryChange, back: Option<String>) -> Response {
     match state.client().patch(&entry_path(id), &change).await {
-        Ok(reply) if reply.is_success() => Redirect::to(&return_to(back)).into_response(),
+        Ok(reply) if reply.is_success() => {
+            Redirect::to(&return_to(back, ENTRIES_PAGE)).into_response()
+        }
+        Ok(reply) => Failure::from_reply(&reply).into_response(),
+        Err(error) => Failure::from(error).into_response(),
+    }
+}
+
+async fn save_entry(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Form(form): Form<SaveForm>,
+) -> Response {
+    let request = SaveEntry {
+        folder_id: data::id(&form.folder_id),
+        topics: data::topics_of(&form.topics),
+        note: data::optional_text(form.note),
+        visibility: Some(form.visibility),
+    };
+    match state.client().post(&save_entry_path(id), &request).await {
+        Ok(reply) if reply.is_success() => {
+            Redirect::to(&return_to(form.back, ENTRIES_PAGE)).into_response()
+        }
         Ok(reply) => Failure::from_reply(&reply).into_response(),
         Err(error) => Failure::from(error).into_response(),
     }
@@ -279,7 +311,7 @@ async fn render_feeds(state: &AppState, error: String) -> Result<Html<String>, F
     let now = now();
     let rows = feeds.iter().map(|feed| feed_row(feed, now)).collect();
     render(FeedsPage {
-        section: "feeds",
+        section: "reader",
         feeds: rows,
         user_agent: DEFAULT_USER_AGENT.to_owned(),
         has_error: !error.is_empty(),
@@ -339,8 +371,8 @@ fn filters(query: &PageQuery) -> Vec<FilterLink> {
 }
 
 /// The sidebar's feed links, which keep the current filters.
-fn feed_links(feeds: &[Feed], query: &PageQuery) -> Vec<FeedLink> {
-    let link = |title: String, feed: Option<i64>, selected: bool| FeedLink {
+fn feed_links(feeds: &[Feed], query: &PageQuery) -> Vec<data::NavLink> {
+    let link = |title: String, feed: Option<i64>, selected: bool| data::NavLink {
         title,
         selected,
         href: format!(
@@ -425,7 +457,7 @@ fn interval(seconds: i64) -> String {
 }
 
 /// How long ago a timestamp was, in its largest whole unit.
-fn age(at: i64, now: i64) -> (i64, &'static str) {
+pub(crate) fn age(at: i64, now: i64) -> (i64, &'static str) {
     let seconds = now.saturating_sub(at);
     let days = seconds / 86_400;
     if seconds < 60 {
@@ -444,7 +476,7 @@ fn age(at: i64, now: i64) -> (i64, &'static str) {
 }
 
 /// How long ago a moment was, in words.
-fn when(at: i64, now: i64) -> String {
+pub(crate) fn when(at: i64, now: i64) -> String {
     match age(at, now) {
         (_, "s") => "just now".to_owned(),
         (count, unit) => format!("{count}{unit} ago"),
@@ -452,27 +484,10 @@ fn when(at: i64, now: i64) -> String {
 }
 
 /// How long ago a moment was, as a short stamp.
-fn stamp(at: i64, now: i64) -> String {
+pub(crate) fn stamp(at: i64, now: i64) -> String {
     match age(at, now) {
         (_, "s") => "now".to_owned(),
         (count, unit) => format!("{count}{unit}"),
-    }
-}
-
-/// Page a form returns to, which must stay on this site.
-fn return_to(back: Option<String>) -> String {
-    match back {
-        Some(back) if back.starts_with('/') && !back.starts_with("//") => back,
-        _ => ENTRIES_PAGE.to_owned(),
-    }
-}
-
-/// User agent a form names, where an empty one means the default.
-fn user_agent_of(user_agent: &str) -> Option<String> {
-    let user_agent = user_agent.trim();
-    match user_agent.is_empty() {
-        true => None,
-        false => Some(user_agent.to_owned()),
     }
 }
 
@@ -498,95 +513,6 @@ fn present(text: Option<String>) -> (String, bool) {
     }
 }
 
-/// Reason for a failed reply, as given by the daemon.
-fn reason(reply: &Reply) -> String {
-    match serde_json::from_slice::<ApiError>(&reply.body) {
-        Ok(error) => error.error,
-        Err(_) => format!("daemon replied {}", reply.status),
-    }
-}
-
-/// Render a page, mapping a template failure to a server error.
-fn render<T: Template>(page: T) -> Result<Html<String>, Failure> {
-    match page.render() {
-        Ok(body) => Ok(Html(body)),
-        Err(error) => {
-            tracing::error!("{error}");
-            Err(Failure {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: error.to_string(),
-                offline: false,
-            })
-        }
-    }
-}
-
-/// A failed request, shown by the error page.
-#[derive(Debug)]
-pub struct Failure {
-    status: StatusCode,
-    message: String,
-    /// Whether the daemon is not running at all.
-    offline: bool,
-}
-
-impl Failure {
-    /// The failure which a reply describes.
-    fn from_reply(reply: &Reply) -> Self {
-        Self {
-            status: StatusCode::from_u16(reply.status).unwrap_or(StatusCode::BAD_GATEWAY),
-            message: reason(reply),
-            offline: false,
-        }
-    }
-}
-
-impl From<ClientError> for Failure {
-    fn from(error: ClientError) -> Self {
-        match &error {
-            ClientError::Offline => Self {
-                status: StatusCode::BAD_GATEWAY,
-                message: error.to_string(),
-                offline: true,
-            },
-            ClientError::Status { status, body } => Self {
-                status: StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY),
-                message: match serde_json::from_str::<ApiError>(body) {
-                    Ok(named) => named.error,
-                    Err(_) => error.to_string(),
-                },
-                offline: false,
-            },
-            _ => Self {
-                status: StatusCode::BAD_GATEWAY,
-                message: error.to_string(),
-                offline: false,
-            },
-        }
-    }
-}
-
-impl IntoResponse for Failure {
-    fn into_response(self) -> Response {
-        if self.status.is_server_error() {
-            tracing::warn!(status = %self.status, "{message}", message = self.message);
-        }
-        let page = ErrorPage {
-            section: "",
-            status: self.status.as_u16(),
-            message: self.message,
-            offline: self.offline,
-        };
-        match page.render() {
-            Ok(html) => (self.status, Html(html)).into_response(),
-            Err(error) => {
-                tracing::error!("{error}");
-                (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
-            }
-        }
-    }
-}
-
 /// Context for the add feed form.
 #[derive(Debug, Deserialize)]
 pub struct AddFeed {
@@ -608,6 +534,19 @@ pub struct Toggle {
     back: Option<String>,
 }
 
+/// Fields from the save-entry dialog.
+#[derive(Debug, Deserialize)]
+pub struct SaveForm {
+    visibility: Visibility,
+    folder_id: Option<String>,
+    #[serde(default)]
+    topics: String,
+    #[serde(default)]
+    note: String,
+    /// Page to return to, or the reading list when missing.
+    back: Option<String>,
+}
+
 /// Template context for the reading list.
 #[derive(Template)]
 #[template(path = "../templates/reader/entries.html")]
@@ -615,7 +554,10 @@ pub struct EntriesPage {
     /// Section of the site which the navbar marks.
     pub section: &'static str,
     pub filters: Vec<FilterLink>,
-    pub feeds: Vec<FeedLink>,
+    pub feeds: Vec<data::NavLink>,
+    pub save_folders: Vec<data::Choice>,
+    /// Whether saving a bookmark publishes it by default.
+    pub visibility_public: bool,
     /// Search query for a set of entries.
     pub search: String,
     /// Page which the row buttons return to.
@@ -631,13 +573,6 @@ pub struct EntriesPage {
 /// One filter offered by the entries list.
 pub struct FilterLink {
     pub label: &'static str,
-    pub href: String,
-    pub selected: bool,
-}
-
-/// A link to one feed's entries.
-pub struct FeedLink {
-    pub title: String,
     pub href: String,
     pub selected: bool,
 }
@@ -666,6 +601,7 @@ pub struct Row {
 pub struct EntryPage {
     /// Section of the site which the navbar marks.
     pub section: &'static str,
+    pub id: i64,
     pub title: String,
     pub feed: String,
     pub has_author: bool,
@@ -679,6 +615,9 @@ pub struct EntryPage {
     pub body: String,
     /// Return link to the reading list.
     pub back: String,
+    pub save_folders: Vec<data::Choice>,
+    /// Whether saving a bookmark publishes it by default.
+    pub visibility_public: bool,
 }
 
 /// Template context for the feed list.

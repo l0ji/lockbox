@@ -1,0 +1,62 @@
+{% extends "layout.html" %}
+
+{% block title %}lockbox: topics{% endblock %}
+
+{% block subnav %}
+<nav class="subtabs">
+    <a class="subtab" href="/bookmarks">saved</a>
+    <a class="subtab" href="/bookmarks/archived">archived</a>
+    <a class="subtab" href="/folders">folders</a>
+    <a class="subtab on" href="/topics">topics</a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="sectionbar">
+    <h1 class="section">topics</h1>
+</div>
+
+{%- if has_error %}
+<p class="notice">{{ error }}</p>
+{%- endif %}
+
+<table class="topics">
+    <thead>
+        <tr>
+            <th>topic</th>
+            <th>links</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {%- for topic in topics %}
+        <tr>
+            <td class="name">
+                <strong>{{ topic.name }}</strong>
+                {%- if topic.followed %}
+                <span class="meta">followed</span>
+                {%- endif %}
+            </td>
+            <td><a href="{{ topic.href }}">saved links</a></td>
+            <td>
+                <form method="post" action="/topics/{{ topic.id }}/rename">
+                    <input type="text" name="name" value="{{ topic.name }}" size="22" required aria-label="name">
+                    <button type="submit">rename</button>
+                </form>
+                <form method="post" action="/topics/{{ topic.id }}/delete">
+                    <button type="submit">delete</button>
+                </form>
+            </td>
+        </tr>
+        {%- else %}
+        <tr>
+            <td class="empty" colspan="3">no topics yet</td>
+        </tr>
+        {%- endfor %}
+    </tbody>
+</table>
+
+{%- if has_next %}
+<p class="more"><a href="{{ next }}">more topics</a></p>
+{%- endif %}
+{% endblock %}

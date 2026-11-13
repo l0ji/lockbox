@@ -2,9 +2,17 @@
 
 {% block title %}lockbox: {{ title }}{% endblock %}
 
+{% block subnav %}
+<nav class="subtabs">
+    <a class="subtab on" href="/">entries</a>
+    <a class="subtab" href="/feeds">feeds</a>
+</nav>
+{% endblock %}
+
 {% block content %}
 <div class="sectionbar">
     <h1 class="section"><a href="{{ back }}">reader</a></h1>
+    <button type="button" onclick="document.getElementById('save-entry').showModal()">save link</button>
 </div>
 
 <article class="entry">
@@ -21,4 +29,31 @@
     <div class="body">{{ excerpt }}</div>
     {%- endif %}
 </article>
+
+<dialog class="save" id="save-entry">
+    <form method="post" action="/entry/{{ id }}/save">
+        <h2>save link</h2>
+        <label>visibility
+            <select name="visibility">
+                <option value="public" {% if visibility_public %}selected{% endif %}>public</option>
+                <option value="private" {% if visibility_public %}{% else %}selected{% endif %}>private</option>
+            </select>
+        </label>
+        <label>folder
+            <select name="folder_id">
+                <option value="">unfiled</option>
+                {%- for folder in save_folders %}
+                <option value="{{ folder.id }}">{{ folder.label }}</option>
+                {%- endfor %}
+            </select>
+        </label>
+        <label>topics <input type="text" name="topics" size="28" placeholder="rust, databases"></label>
+        <label>note <textarea name="note" rows="3"></textarea></label>
+        <input type="hidden" name="back" value="/entry/{{ id }}">
+        <div class="actions">
+            <button type="submit">save</button>
+            <button type="button" onclick="this.closest('dialog').close()">cancel</button>
+        </div>
+    </form>
+</dialog>
 {% endblock %}
