@@ -40,12 +40,10 @@ async fn change_settings(
 ) -> Result<Json<Settings>, Failure> {
     let changed = state
         .db()
-        .call(move |connection| {
-            let transaction = connection.transaction()?;
-            let mut current = parse(&settings::load(&transaction)?)?;
+        .transaction(move |transaction| {
+            let mut current = parse(&settings::load(transaction)?)?;
             current.change(change);
-            settings::store(&transaction, &current.stored())?;
-            transaction.commit()?;
+            settings::store(transaction, &current.stored())?;
             Ok(current)
         })
         .await?;

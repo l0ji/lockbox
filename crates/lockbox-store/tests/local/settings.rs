@@ -15,14 +15,9 @@ async fn read(db: &Db) -> HashMap<String, String> {
 
 /// Modify the settings table.
 async fn write(db: &Db, stored: HashMap<String, String>) {
-    db.call(move |connection| {
-        let transaction = connection.transaction()?;
-        settings::store(&transaction, &stored)?;
-        transaction.commit()?;
-        Ok(())
-    })
-    .await
-    .expect("write settings")
+    db.transaction(move |transaction| settings::store(transaction, &stored))
+        .await
+        .expect("write settings")
 }
 
 #[tokio::test]

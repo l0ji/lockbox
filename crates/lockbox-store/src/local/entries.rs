@@ -49,8 +49,8 @@ pub async fn get(db: &Db, id: i64) -> Result<Option<Entry>, Error> {
 
 /// Delete one entry and everything referencing it.
 pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
-    db.call(move |connection| {
-        let changed = connection.execute("DELETE FROM entry WHERE id = ?1", [id])?;
+    db.transaction(move |transaction| {
+        let changed = transaction.execute("DELETE FROM entry WHERE id = ?1", [id])?;
         if changed == 0 {
             return Err(Error::NotFound);
         }
@@ -133,8 +133,8 @@ impl Mark {
 
 /// Set one state column of one entry.
 async fn mark(db: &Db, mark: Mark, id: i64, at: Option<i64>) -> Result<(), Error> {
-    db.call(move |connection| {
-        let changed = connection.execute(
+    db.transaction(move |transaction| {
+        let changed = transaction.execute(
             &format!("UPDATE entry SET {} = ?1 WHERE id = ?2", mark.column()),
             params![at, id],
         )?;

@@ -89,12 +89,12 @@ pub async fn get(db: &Db, id: i64) -> Result<Option<Topic>, Error> {
 
 pub async fn rename(db: &Db, id: i64, name: &str) -> Result<Topic, Error> {
     let name = name.trim().to_owned();
-    db.call(move |connection| {
+    db.transaction(move |transaction| {
         if name.is_empty() {
             return Err(Error::Invalid("a topic needs a name".to_owned()));
         }
         let sql = format!("UPDATE topic SET name = ?1 WHERE id = ?2 RETURNING {COLUMNS}");
-        match connection
+        match transaction
             .query_row(&sql, params![name, id], from_row)
             .optional()?
         {
@@ -127,8 +127,8 @@ pub async fn follow(db: &Db, name: &str, now: i64) -> Result<Topic, Error> {
 /// Stop following a topic. Does nothing if the topic was never followed.
 pub async fn unfollow(db: &Db, name: &str) -> Result<(), Error> {
     let name = name.trim().to_owned();
-    db.call(move |connection| {
-        connection.execute(
+    db.transaction(move |transaction| {
+        transaction.execute(
             "UPDATE topic SET followed_at = NULL WHERE name = ?1 AND followed_at IS NOT NULL",
             [&name],
         )?;
@@ -151,8 +151,8 @@ pub async fn followed(db: &Db) -> Result<Vec<Topic>, Error> {
 
 /// Delete a topic and remove it from bookmarks and folders.
 pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
-    db.call(move |connection| {
-        let changed = connection.execute("DELETE FROM topic WHERE id = ?1", [id])?;
+    db.transaction(move |transaction| {
+        let changed = transaction.execute("DELETE FROM topic WHERE id = ?1", [id])?;
         if changed == 0 {
             return Err(Error::NotFound);
         }

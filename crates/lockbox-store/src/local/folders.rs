@@ -202,8 +202,8 @@ pub async fn place(db: &Db, id: i64, parent: Option<i64>, position: usize) -> Re
 
 /// Delete a folder and its children, leaving their bookmarks unfiled.
 pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
-    db.call(move |connection| {
-        let changed = connection.execute("DELETE FROM folder WHERE id = ?1", [id])?;
+    db.transaction(move |transaction| {
+        let changed = transaction.execute("DELETE FROM folder WHERE id = ?1", [id])?;
         if changed == 0 {
             return Err(Error::NotFound);
         }

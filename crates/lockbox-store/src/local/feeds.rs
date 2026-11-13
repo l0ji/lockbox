@@ -160,8 +160,8 @@ pub async fn record_refresh(db: &Db, id: i64, refresh: Refresh) -> Result<usize,
 /// Record a failed refresh, which leaves the validators and the entries alone.
 pub async fn record_failure(db: &Db, id: i64, error: &str, now: i64) -> Result<(), Error> {
     let error = error.to_owned();
-    db.call(move |connection| {
-        let changed = connection.execute(
+    db.transaction(move |transaction| {
+        let changed = transaction.execute(
             "UPDATE feed
              SET fetched_at = ?1, next_refresh_at = ?1 + refresh_seconds, last_error = ?2,
                  updated_at = ?1
@@ -181,7 +181,7 @@ pub async fn record_failure(db: &Db, id: i64, error: &str, now: i64) -> Result<(
 /// A shorter or longer interval moves a refresh that was already scheduled to
 /// `now + refresh_seconds`.
 pub async fn update(db: &Db, id: i64, change: FeedChange, now: i64) -> Result<Feed, Error> {
-    db.call(move |connection| {
+    db.transaction(move |transaction| {
         let mut sets = vec!["updated_at = ?"];
         let mut args = vec![Value::Integer(now)];
 
@@ -236,7 +236,7 @@ pub async fn update(db: &Db, id: i64, change: FeedChange, now: i64) -> Result<Fe
         );
         args.push(Value::Integer(id));
 
-        match connection
+        match transaction
             .query_row(&sql, params_from_iter(args), from_row)
             .optional()?
         {
@@ -249,8 +249,8 @@ pub async fn update(db: &Db, id: i64, change: FeedChange, now: i64) -> Result<Fe
 
 /// Remove a feed and every entry which comes from it.
 pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
-    db.call(move |connection| {
-        let changed = connection.execute("DELETE FROM feed WHERE id = ?1", [id])?;
+    db.transaction(move |transaction| {
+        let changed = transaction.execute("DELETE FROM feed WHERE id = ?1", [id])?;
         if changed == 0 {
             return Err(Error::NotFound);
         }

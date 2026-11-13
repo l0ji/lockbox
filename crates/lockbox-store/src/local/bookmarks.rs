@@ -231,8 +231,8 @@ pub async fn place(
 }
 
 pub async fn mark_archived(db: &Db, id: i64, at: Option<i64>) -> Result<(), Error> {
-    db.call(move |connection| {
-        let changed = connection.execute(
+    db.transaction(move |transaction| {
+        let changed = transaction.execute(
             "UPDATE bookmark SET archived_at = ?1 WHERE id = ?2",
             params![at, id],
         )?;
@@ -246,8 +246,8 @@ pub async fn mark_archived(db: &Db, id: i64, at: Option<i64>) -> Result<(), Erro
 
 /// Remove one bookmark and the topics it carried.
 pub async fn delete(db: &Db, id: i64) -> Result<(), Error> {
-    db.call(move |connection| {
-        let changed = connection.execute("DELETE FROM bookmark WHERE id = ?1", [id])?;
+    db.transaction(move |transaction| {
+        let changed = transaction.execute("DELETE FROM bookmark WHERE id = ?1", [id])?;
         if changed == 0 {
             return Err(Error::NotFound);
         }
